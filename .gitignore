@@ -8,14 +8,14 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-build/
+/build/
 develop-eggs/
-dist/
+/dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -216,3 +216,25 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- a-mbl project ---
+# Coursework documents (slides, report, photos) kept out of the code repo
+/coursework/
+
+# Local data: SQLite database, key files, encrypted evidence. Never commit.
+backend/data/
+*.sqlite3
+
+# Mobile (Expo / Node)
+node_modules/
+.expo/
+mobile/dist/
+*.tsbuildinfo
+expo-env.d.ts
+
+# Datasets and trained model artifacts stay out of Git (roadmap §12.1)
+ml/data/
+ml/artifacts/
+
+# macOS
+.DS_Store

@@ -1,0 +1,31 @@
+{"text": "See you at practice tomorrow, bring your racket!", "label": "normal", "bodyShaming": false}
+{"text": "Can you send me the homework for tomorrow please?", "label": "normal", "bodyShaming": false}
+{"text": "That movie was amazing, we should watch the sequel.", "label": "normal", "bodyShaming": false}
+{"text": "I love this song so much, thanks for sharing it.", "label": "normal", "bodyShaming": false}
+{"text": "boys will be boys, see you at the game", "label": "normal", "bodyShaming": false}
+{"text": "you are an idiot", "label": "offensive", "bodyShaming": false}
+{"text": "what a stupid game, total garbage", "label": "offensive", "bodyShaming": false}
+{"text": "what the fuck is wrong with you", "label": "offensive", "bodyShaming": false}
+{"text": "you are an 1d1ot", "label": "offensive", "bodyShaming": false}
+{"text": "lose some weight fatty", "label": "offensive", "bodyShaming": true}
+{"text": "nobody likes you, loser", "label": "harassment", "bodyShaming": false}
+{"text": "everyone hates you", "label": "harassment", "bodyShaming": false}
+{"text": "you're worthless and pathetic", "label": "harassment", "bodyShaming": false}
+{"text": "you have no friends and you know it", "label": "harassment", "bodyShaming": false}
+{"text": "you're a fat ugly whale", "label": "harassment", "bodyShaming": true}
+{"text": "you look like a whale in that photo", "label": "harassment", "bodyShaming": true}
+{"text": "i hate all immigrants they are criminals", "label": "hate_speech", "bodyShaming": false}
+{"text": "muslims are trash and everyone knows it", "label": "hate_speech", "bodyShaming": false}
+{"text": "go back to your country", "label": "hate_speech", "bodyShaming": false}
+{"text": "women are stupid and cant be trusted", "label": "hate_speech", "bodyShaming": false}
+{"text": "i will kill you", "label": "threat", "bodyShaming": false}
+{"text": "watch your back tomorrow after school", "label": "threat", "bodyShaming": false}
+{"text": "kys", "label": "threat", "bodyShaming": false}
+{"text": "you're dead after school, we know where you live", "label": "threat", "bodyShaming": false}
+{"text": "stop showing up or i will hurt you", "label": "threat", "bodyShaming": false}
+{"text": "i will kill you!!", "label": "threat", "bodyShaming": false}
+{"text": "watch your back!", "label": "threat", "bodyShaming": false}
+{"text": "kys!", "label": "threat", "bodyShaming": false}
+{"text": "you never got hurt", "label": "normal", "bodyShaming": false}
+{"text": "you okay? that looked like it hurt", "label": "normal", "bodyShaming": false}
+{"text": "you know what i hate", "label": "normal", "bodyShaming": false}

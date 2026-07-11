@@ -1,0 +1,87 @@
+"""Role-scoped summaries and masked PDF generation."""
+
+
+def test_summary_counts_by_label_and_severity(client, register, analyze, auth):
+    session = register("report@test.io")
+    analyze(session, "you are an idiot")
+    analyze(session, "i will kill you")
+    analyze(session, "nobody likes you, loser")
+    analyze(session, "totally fine message")  # no case
+
+    summary = client.get("/v1/reports/summary", headers=auth(session)).json()
+    assert summary["total"] == 3
+    assert summary["byLabel"] == {"offensive": 1, "threat": 1, "harassment": 1}
+    assert summary["bySeverity"] == {"caution": 1, "critical": 1, "high": 1}
+    assert summary["pending"] == 3
+    assert summary["weekly"] and sum(w["count"] for w in summary["weekly"]) == 3
+
+
+def test_summary_respects_role_scope(client, make_linked_pair, register, analyze, auth):
+    teen, guardian = make_linked_pair()
+    stranger = register("stranger@test.io")
+    analyze(teen, "i will kill you")
+    analyze(stranger, "i will kill you")
+
+    guardian_summary = client.get("/v1/reports/summary", headers=auth(guardian)).json()
+    assert guardian_summary["total"] == 1  # linked teen only, never the stranger
+
+    stranger_summary = client.get("/v1/reports/summary", headers=auth(stranger)).json()
+    assert stranger_summary["total"] == 1
+
+
+def test_invalid_date_range_rejected(client, register, auth):
+    session = register("dates@test.io")
+    bad = client.get("/v1/reports/summary?rangeFrom=july-first", headers=auth(session))
+    assert bad.status_code == 422
+    swapped = client.get("/v1/reports/summary?rangeFrom=2026-07-10&rangeTo=2026-07-01",
+                         headers=auth(session))
+    assert swapped.status_code == 422
+
+
+def _spy_on_pdf(monkeypatch):
+    """Capture the exact data handed to the PDF builder while still building it."""
+    from backend.app import pdf as pdf_module
+
+    captured = {}
+    real = pdf_module.build_report
+
+    def spy(**kwargs):
+        captured.clear()
+        captured.update(kwargs)
+        return real(**kwargs)
+
+    monkeypatch.setattr("backend.app.pdf.build_report", spy)
+    return captured
+
+
+def test_pdf_is_generated_and_masked(client, register, analyze, auth, monkeypatch):
+    captured = _spy_on_pdf(monkeypatch)
+    session = register("pdf@test.io")
+    analyze(session, "i will kill you tomorrow")
+
+    response = client.post("/v1/reports/pdf", json={}, headers=auth(session))
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.content.startswith(b"%PDF")
+    assert len(response.content) > 1000
+
+    # Exactly one case went into the PDF, and its preview masks the raw phrase.
+    assert len(captured["cases"]) == 1
+    assert "kill you" not in captured["cases"][0]["maskedPreview"]
+    assert captured["summary"]["total"] == 1
+
+
+def test_pdf_respects_role_scope(client, make_linked_pair, register, analyze, auth,
+                                 monkeypatch):
+    captured = _spy_on_pdf(monkeypatch)
+    teen, guardian = make_linked_pair()
+    stranger = register("stranger@test.io")
+    analyze(teen, "i will kill you tomorrow")
+
+    guardian_pdf = client.post("/v1/reports/pdf", json={}, headers=auth(guardian))
+    assert guardian_pdf.status_code == 200
+    assert len(captured["cases"]) == 1  # the linked teen's case is in scope
+
+    stranger_pdf = client.post("/v1/reports/pdf", json={}, headers=auth(stranger))
+    assert stranger_pdf.status_code == 200
+    assert captured["cases"] == []      # nothing leaks outside the role scope
