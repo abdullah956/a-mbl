@@ -15,6 +15,10 @@ import type { AnalysisResult, OcrResult } from "../../lib/types";
 
 const MAX_CHARS = 5000;
 
+// "unreachable" also covers a failed health check: the scan flow only shows
+// once the server has positively confirmed that OCR is available.
+type OcrStatus = "checking" | "ready" | "unavailable" | "unreachable";
+
 export default function Analyze() {
   const [mode, setMode] = useState<"text" | "screenshot">("text");
   const [text, setText] = useState("");
@@ -25,7 +29,7 @@ export default function Analyze() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [result, setResult] = useState<AnalysisResult | null>(null);
 
-  const [ocrReady, setOcrReady] = useState<boolean | null>(null);
+  const [ocrStatus, setOcrStatus] = useState<OcrStatus>("checking");
   const [ocrBusy, setOcrBusy] = useState(false);
   const [ocrInfo, setOcrInfo] = useState<OcrResult | null>(null);
   const [textFromScreenshot, setTextFromScreenshot] = useState(false);
@@ -34,9 +38,13 @@ export default function Analyze() {
     (async () => {
       try {
         const url = await getApiUrl();
-        if (url) setOcrReady((await checkHealth(url)).ocrReady);
+        if (!url) {
+          setOcrStatus("unreachable");
+          return;
+        }
+        setOcrStatus((await checkHealth(url)).ocrReady ? "ready" : "unavailable");
       } catch {
-        setOcrReady(null);
+        setOcrStatus("unreachable");
       }
     })();
   }, []);
@@ -115,10 +123,7 @@ export default function Analyze() {
       {mode === "screenshot" ? (
         <Card>
           <Subtitle>Screenshot → text</Subtitle>
-          {ocrReady === false ? (
-            <Banner tone="warn"
-                    text="Screenshot text extraction is not installed on the server yet (Tesseract). You can still type the message text yourself." />
-          ) : (
+          {ocrStatus === "ready" ? (
             <>
               <Body muted>
                 Pick one screenshot. The server extracts the text, and you review and
@@ -131,6 +136,13 @@ export default function Analyze() {
                         loading={ocrBusy} />
               </View>
             </>
+          ) : ocrStatus === "checking" ? (
+            <Body muted>Checking whether the server can read screenshots…</Body>
+          ) : (
+            <Banner tone="warn"
+                    text={ocrStatus === "unavailable"
+                      ? "Screenshot text extraction is not installed on the server yet (Tesseract). You can still type the message text yourself."
+                      : "Could not confirm screenshot text extraction with the server. Check the connection, or type the message text yourself."} />
           )}
           {ocrInfo ? (
             <Banner tone={ocrInfo.lowConfidence ? "warn" : "info"}

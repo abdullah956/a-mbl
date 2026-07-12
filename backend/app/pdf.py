@@ -6,6 +6,7 @@ material; previews come pre-masked from the case table.
 """
 
 import io
+from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -33,7 +34,9 @@ def build_report(*, requester_name: str, requester_role: str, range_from: str,
 
     story = [
         Paragraph("a-mbl — masked case report", styles["Title"]),
-        Paragraph(f"Scope: {requester_role} — {requester_name}", styles["BodyText"]),
+        # Paragraph() parses its text as mini-XML, so anything user-derived
+        # (display names, masked case text) must be escaped or it raises.
+        Paragraph(f"Scope: {requester_role} — {escape(requester_name)}", styles["BodyText"]),
         Paragraph(f"Date range: {range_from[:10]} to {range_to[:10]}", styles["BodyText"]),
         Paragraph(f"Generated: {now_iso()}", styles["BodyText"]),
         Spacer(1, 6 * mm),
@@ -58,7 +61,7 @@ def build_report(*, requester_name: str, requester_role: str, range_from: str,
         "yes" if case["bodyShaming"] else "no",
         case["severity"],
         case["status"],
-        Paragraph(case["maskedPreview"], small),
+        Paragraph(escape(case["maskedPreview"]), small),
     ] for case in cases]
 
     table = Table(rows, colWidths=[18 * mm, 20 * mm, 22 * mm, 13 * mm, 18 * mm, 18 * mm, 18 * mm, None])

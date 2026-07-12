@@ -71,6 +71,17 @@ def test_pdf_is_generated_and_masked(client, register, analyze, auth, monkeypatc
     assert captured["summary"]["total"] == 1
 
 
+def test_pdf_survives_markup_in_names_and_case_text(client, register, analyze, auth):
+    # ReportLab's Paragraph parses mini-XML; unescaped '<b>' or '&' in the
+    # display name or masked preview used to crash the whole report with a 500.
+    session = register("markup@test.io", name="<b>Mark & Up")
+    analyze(session, "you are an <b>idiot & a <loser")
+
+    response = client.post("/v1/reports/pdf", json={}, headers=auth(session))
+    assert response.status_code == 200
+    assert response.content.startswith(b"%PDF")
+
+
 def test_pdf_respects_role_scope(client, make_linked_pair, register, analyze, auth,
                                  monkeypatch):
     captured = _spy_on_pdf(monkeypatch)

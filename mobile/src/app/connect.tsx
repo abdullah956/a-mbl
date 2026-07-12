@@ -11,7 +11,7 @@ import type { Health } from "../lib/types";
 
 export default function Connect() {
   const { markServerConfigured } = useAuth();
-  const [url, setUrl] = useState("http://192.168.1.20:8000");
+  const [url, setUrl] = useState(process.env.EXPO_PUBLIC_API_URL ?? "");
   const [checking, setChecking] = useState(false);
   const [health, setHealth] = useState<Health | null>(null);
   const [error, setError] = useState<string | null>(null);

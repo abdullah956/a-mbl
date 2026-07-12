@@ -55,7 +55,11 @@ npx expo start
 Scan the QR code with **Expo Go** (Android: inside the Expo Go app; iPhone:
 with the Camera app). On the first screen, enter the server address printed by
 `run.sh` and tap **Check connection** — a green "Connected ✓" card confirms
-everything.
+everything. To pre-fill the address during development, start the bundler with
+`EXPO_PUBLIC_API_URL=http://<mac-ip>:8000 npx expo start`.
+
+For step-by-step device testing — your own Android phone, or sending a build
+to someone else's iPhone — see [DEVICE_TESTING.md](DEVICE_TESTING.md).
 
 ## 4. Demo data (optional but recommended)
 
@@ -68,7 +72,7 @@ Synthetic accounts, all with password `demo-pass-123`:
 
 | Email | Role | Notes |
 | --- | --- | --- |
-| `demo.user@a-mbl.test` | User (adult) | Has sample cases of every severity |
+| `demo.user@a-mbl.test` | User (adult) | Has sample cases of every severity (caution, high, critical) |
 | `demo.guardian@a-mbl.test` | Guardian | Linked to the teen; has an alert |
 | `demo.teen@a-mbl.test` | User (13–17) | Activated through the guardian link |
 | `demo.admin@a-mbl.test` | School admin | "Demo High School" organization |
@@ -82,7 +86,7 @@ python -m backend.scripts.create_admin "School name" admin@school.test "a-strong
 ## 5. Tests and checks
 
 ```bash
-# Backend test suite (86 tests)
+# Backend test suite (87 tests)
 conda activate a-mbl
 python -m pytest backend/tests
 

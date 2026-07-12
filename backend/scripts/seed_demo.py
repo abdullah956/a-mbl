@@ -25,7 +25,9 @@ from backend.scripts.create_admin import create_admin  # noqa: E402
 PASSWORD = "demo-pass-123"
 
 SAMPLES = [
+    # Together these cover every case severity: caution, high, and critical.
     ("Had a great day at school today, see you tomorrow!", "text", None, None),
+    ("that new rule is so stupid, this app is trash", "text", "ChatApp", None),
     ("you are such an idiot and a loser, everyone hates you", "text", "ChatApp", "anon_17"),
     ("stop showing up or i will hurt you, you're dead tomorrow", "text", "ChatApp", "anon_17"),
     ("nobody likes you, just stop coming to school", "screenshot", "PicShare", None),

@@ -34,14 +34,15 @@ claims production readiness, measured accuracy, or legal compliance.
   days via a cleanup job at startup + every 24 h; account deletion cascades
   rows and removes evidence files; alert previews carry no content.
 - **Mobile** (`mobile/`, Expo SDK 57 + expo-router + TypeScript): connection
-  screen with editable server address and health check, neutral age screen,
+  screen with editable server address and health check (a development-only
+  `EXPO_PUBLIC_API_URL` pre-fills it, roadmap §9.3), neutral age screen,
   register/login, pending-approval screen with link code, five tabs
   (Home/Analyze/Cases/Alerts/Profile), text analysis with inline result,
-  screenshot → OCR → correct → analyze flow (hidden when the server lacks
-  Tesseract), case detail with deliberate **Reveal**, human reviews,
+  screenshot → OCR → correct → analyze flow (shown only once the server
+  confirms OCR is available), case detail with deliberate **Reveal**, human reviews,
   organization sharing with named confirmation, evidence attach/view,
   guardian linking, data export, account deletion.
-- **Tests**: 86 pytest cases (`backend/tests/`) covering auth (including
+- **Tests**: 87 pytest cases (`backend/tests/`) covering auth (including
   token tampering and expired refresh), age gate, link codes, IDOR and
   cross-organization isolation, retention, encryption, alert scoping and
   cleanup on revocation, report/PDF role scoping and masking, OCR validation,
@@ -84,7 +85,31 @@ Demo accounts after seeding (password `demo-pass-123`): `demo.user@a-mbl.test`,
 | OpenAPI-generated TS types (§10)                 | Hand-mirrored`mobile/src/lib/types.ts`                                     | Type generation is worth adding once the contract stops moving; the FastAPI OpenAPI doc remains the source of truth.                            |
 | Role-specific tab sets (§8.2–8.4)               | One five-tab layout whose titles and content adapt per role                  | Same information scope, less navigation code; backend scoping is what enforces access anyway (§5.4).                                           |
 | PDF download inside the app (§15.2)              | PDF served by`POST /v1/reports/pdf`; mobile shows the summary screen       | Saving/sharing files in Expo Go needs extra packages; the masked PDF itself works and is tested.                                                |
-| Tesseract OCR always on (§13)                    | Feature flag:`/v1/health.ocrReady`; the app hides the scan flow when false | Tesseract is a system binary that may not be installed (`brew install tesseract`). Upload validation still runs and is tested either way.     |
+| Tesseract OCR always on (§13)                    | Feature flag:`/v1/health.ocrReady`; the app shows the scan flow only after the server confirms it is ready | Tesseract is a system binary that may not be installed (`brew install tesseract`). Upload validation still runs and is tested either way.     |
+| Jest + React Native Testing Library (§9.1, §18.1) | No mobile test runner yet; the gates are strict TypeScript (`npx tsc --noEmit`), `expo export`, and the backend suite | The screens are thin wrappers over the API, which the 87 pytest cases exercise; a Jest/RNTL harness is still planned before the trained-model work. |
+
+## Fixes on 2026-07-12
+
+- **PDF crash**: `POST /v1/reports/pdf` returned 500 whenever a display name
+  or masked case text contained markup-like characters (`<b>`, `&`) —
+  ReportLab's `Paragraph` parses mini-XML. User-derived strings are now
+  escaped in `backend/app/pdf.py`, with a regression test.
+- **Refresh race**: the mobile app had two independent refresh paths (boot and
+  evidence reload bypassed the single-flight one). Because the backend treats
+  refresh-token reuse as theft and revokes every session, concurrent refreshes
+  could sign the user out everywhere. All callers now share one single-flight
+  `refreshSession()` in `mobile/src/lib/api.ts`, and the stored token is only
+  cleared when the server answers 401 (not on transient errors).
+- **OCR gating**: the screenshot scan buttons appeared even when the health
+  check had failed; the scan flow now shows only after the server positively
+  confirms `ocrReady`, with distinct messages for "not installed" vs
+  "could not check".
+- **Demo seed**: `seed_demo.py` produced no caution-severity case; it now
+  seeds one of each case severity (caution, high, critical) as
+  `HOW_TO_RUN.md` describes.
+- **`EXPO_PUBLIC_API_URL`** (§9.3): now implemented as a development-only
+  default that pre-fills the connection screen and seeds the API base URL
+  until an address is saved in the app.
 
 ## Known limitations
 

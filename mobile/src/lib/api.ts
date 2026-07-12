@@ -9,9 +9,13 @@ const URL_KEY = "ambl.apiUrl";
 const REFRESH_KEY = "ambl.refreshToken";
 const DEFAULT_TIMEOUT_MS = 12_000;
 
+// Development-only default (roadmap §9.3): EXPO_PUBLIC_API_URL is inlined at
+// build time and seeds the address until one is saved on the connect screen.
+const ENV_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/+$/, "") ?? null;
+
 let baseUrl: string | null = null;
 let accessToken: string | null = null;
-let refreshing: Promise<boolean> | null = null;
+let refreshing: Promise<AuthResponse | null> | null = null;
 
 export class ApiError extends Error {
   code: string;
@@ -45,7 +49,7 @@ async function safeSet(key: string, value: string | null): Promise<void> {
 }
 
 export async function getApiUrl(): Promise<string | null> {
-  if (!baseUrl) baseUrl = await safeGet(URL_KEY);
+  if (!baseUrl) baseUrl = (await safeGet(URL_KEY)) ?? ENV_URL;
   return baseUrl;
 }
 
@@ -103,49 +107,37 @@ async function rawRequest(path: string, options: RequestInit,
   }
 }
 
-async function tryRefresh(): Promise<boolean> {
+export function refreshSession(): Promise<AuthResponse | null> {
+  // Single-flight: the backend rotates refresh tokens and treats reuse as
+  // theft (revoking ALL of the user's sessions), so every caller — boot,
+  // 401 retry, evidence reload — must share one in-flight request.
   if (!refreshing) {
     refreshing = (async () => {
       const token = await storedRefreshToken();
-      if (!token) return false;
+      if (!token) return null;
       try {
         const response = await rawRequest("/v1/auth/refresh", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ refreshToken: token }),
         }, DEFAULT_TIMEOUT_MS);
-        if (!response.ok) return false;
-        await storeSession(await response.json() as AuthResponse);
-        return true;
+        if (!response.ok) {
+          // Only a 401 means the token itself is dead; keep it on
+          // transient server errors so the session can recover.
+          if (response.status === 401) await clearSession();
+          return null;
+        }
+        const auth = await response.json() as AuthResponse;
+        await storeSession(auth);
+        return auth;
       } catch {
-        return false;
+        return null;
       } finally {
         refreshing = null;
       }
     })();
   }
   return refreshing;
-}
-
-export async function refreshSession(): Promise<AuthResponse | null> {
-  const token = await storedRefreshToken();
-  if (!token) return null;
-  try {
-    const response = await rawRequest("/v1/auth/refresh", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refreshToken: token }),
-    }, DEFAULT_TIMEOUT_MS);
-    if (!response.ok) {
-      await clearSession();
-      return null;
-    }
-    const auth = await response.json() as AuthResponse;
-    await storeSession(auth);
-    return auth;
-  } catch {
-    return null;
-  }
 }
 
 export async function api<T>(path: string, options: {
@@ -168,7 +160,7 @@ export async function api<T>(path: string, options: {
     body: formData ?? (body !== undefined ? JSON.stringify(body) : undefined),
   }, timeoutMs);
 
-  if (response.status === 401 && retryOn401 && await tryRefresh()) {
+  if (response.status === 401 && retryOn401 && await refreshSession()) {
     return api<T>(path, { ...options, retryOn401: false });
   }
   if (!response.ok) throw await parseError(response);
