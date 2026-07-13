@@ -49,10 +49,35 @@ def build_report(*, requester_name: str, requester_role: str, range_from: str,
         Paragraph(
             "By severity: " + (", ".join(f"{k}: {v}" for k, v in summary["bySeverity"].items()) or "none"),
             styles["BodyText"]),
+        Paragraph(
+            "By sender alias (as entered by users, unverified): "
+            + (", ".join(f"{escape(k)}: {v}" for k, v in summary.get("bySender", {}).items()) or "none"),
+            styles["BodyText"]),
         Spacer(1, 6 * mm),
     ]
 
-    header = ["Case", "Date", "Category", "Conf.", "Body shaming", "Severity", "Status", "Masked preview"]
+    # Each cell must fit inside one A4 frame, so review notes are capped in
+    # both count and length — an unbounded note would raise LayoutError and
+    # 500 the whole report.
+    NOTE_LIMIT = 240
+
+    def _preview_cell(case: dict) -> list:
+        cell = [Paragraph(escape(case["maskedPreview"]), small)]
+        reviews = case.get("reviews", [])
+        for review in reviews[:5]:
+            line = f"Review by {escape(review['reviewerName'])}"
+            if review.get("humanLabel"):
+                line += f" — {escape(review['humanLabel'])}"
+            note = review.get("note")
+            if note:
+                trimmed = note[:NOTE_LIMIT] + "…" if len(note) > NOTE_LIMIT else note
+                line += f": {escape(trimmed)}"
+            cell.append(Paragraph(line, small))
+        if len(reviews) > 5:
+            cell.append(Paragraph(f"(+{len(reviews) - 5} more reviews)", small))
+        return cell
+
+    header = ["Case", "Date", "Category", "Conf.", "Body shaming", "Severity", "Status", "Masked preview and reviews"]
     rows = [header] + [[
         case["id"][:8],
         case["createdAt"][:10],
@@ -61,7 +86,7 @@ def build_report(*, requester_name: str, requester_role: str, range_from: str,
         "yes" if case["bodyShaming"] else "no",
         case["severity"],
         case["status"],
-        Paragraph(escape(case["maskedPreview"]), small),
+        _preview_cell(case),
     ] for case in cases]
 
     table = Table(rows, colWidths=[18 * mm, 20 * mm, 22 * mm, 13 * mm, 18 * mm, 18 * mm, 18 * mm, None])

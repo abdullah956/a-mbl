@@ -11,6 +11,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, severityMeta } from "../lib/theme";
 import type { Severity } from "../lib/types";
 
+// §8.5: dynamic type is supported but capped so enlarged text reflows inside
+// minHeight containers instead of clipping. Headings cap lower than body text.
+const SCALE_HEADING = 1.5;
+const SCALE_CONTROL = 1.8;
+const SCALE_BODY = 2;
+
 export function Screen({ children, scroll = true }: {
   children: React.ReactNode; scroll?: boolean;
 }) {
@@ -36,15 +42,21 @@ export function Card({ children, tone }: {
 }
 
 export function Title({ children }: { children: React.ReactNode }) {
-  return <Text accessibilityRole="header" style={styles.title}>{children}</Text>;
+  return (
+    <Text accessibilityRole="header" style={styles.title}
+          maxFontSizeMultiplier={SCALE_HEADING}>{children}</Text>
+  );
 }
 
 export function Subtitle({ children }: { children: React.ReactNode }) {
-  return <Text style={styles.subtitle}>{children}</Text>;
+  return <Text style={styles.subtitle} maxFontSizeMultiplier={SCALE_CONTROL}>{children}</Text>;
 }
 
 export function Body({ children, muted }: { children: React.ReactNode; muted?: boolean }) {
-  return <Text style={[styles.body, muted && { color: colors.muted }]}>{children}</Text>;
+  return (
+    <Text style={[styles.body, muted && { color: colors.muted }]}
+          maxFontSizeMultiplier={SCALE_BODY}>{children}</Text>
+  );
 }
 
 export function Button({ label, onPress, kind = "primary", disabled, loading }: {
@@ -72,7 +84,7 @@ export function Button({ label, onPress, kind = "primary", disabled, loading }: 
       {loading ? (
         <ActivityIndicator color={kind === "primary" || kind === "danger" ? "#fff" : colors.primary} />
       ) : (
-        <Text style={[
+        <Text maxFontSizeMultiplier={SCALE_CONTROL} style={[
           styles.buttonLabel,
           (kind === "secondary" || kind === "ghost") && { color: colors.primaryDark },
         ]}>{label}</Text>
@@ -86,15 +98,18 @@ export function Field({ label, error, ...inputProps }: TextInputProps & {
 }) {
   return (
     <View style={styles.fieldWrap}>
-      <Text style={styles.fieldLabel}>{label}</Text>
+      <Text style={styles.fieldLabel} maxFontSizeMultiplier={SCALE_CONTROL}>{label}</Text>
       <TextInput
         accessibilityLabel={label}
         placeholderTextColor="#9B96B3"
+        maxFontSizeMultiplier={SCALE_CONTROL}
         style={[styles.input, inputProps.multiline && styles.inputMultiline,
                 error ? { borderColor: colors.danger } : null]}
         {...inputProps}
       />
-      {error ? <Text style={styles.fieldError}>{error}</Text> : null}
+      {error ? (
+        <Text style={styles.fieldError} maxFontSizeMultiplier={SCALE_BODY}>{error}</Text>
+      ) : null}
     </View>
   );
 }
@@ -108,8 +123,10 @@ export function Banner({ text, tone = "info" }: { text: string; tone?: "info" | 
   return (
     <View accessibilityRole="alert"
           style={[styles.banner, { backgroundColor: palette.bg }]}>
-      <Text style={[styles.bannerIcon, { color: palette.fg }]}>{palette.icon}</Text>
-      <Text style={[styles.bannerText, { color: palette.fg }]}>{text}</Text>
+      <Text style={[styles.bannerIcon, { color: palette.fg }]}
+            maxFontSizeMultiplier={SCALE_CONTROL}>{palette.icon}</Text>
+      <Text style={[styles.bannerText, { color: palette.fg }]}
+            maxFontSizeMultiplier={SCALE_BODY}>{text}</Text>
     </View>
   );
 }
@@ -119,7 +136,8 @@ export function SeverityChip({ severity }: { severity: Severity }) {
   return (
     <View accessibilityLabel={`Severity: ${meta.label}`}
           style={[styles.chip, { backgroundColor: meta.bg }]}>
-      <Text style={[styles.chipText, { color: meta.fg }]}>{meta.icon} {meta.label}</Text>
+      <Text style={[styles.chipText, { color: meta.fg }]}
+            maxFontSizeMultiplier={SCALE_CONTROL}>{meta.icon} {meta.label}</Text>
     </View>
   );
 }
@@ -131,7 +149,8 @@ export function FilterChip({ label, active, onPress }: {
     <Pressable accessibilityRole="button" accessibilityState={{ selected: active }}
                onPress={onPress}
                style={[styles.filterChip, active && styles.filterChipActive]}>
-      <Text style={[styles.filterChipText, active && { color: "#fff" }]}>{label}</Text>
+      <Text style={[styles.filterChipText, active && { color: "#fff" }]}
+            maxFontSizeMultiplier={SCALE_CONTROL}>{label}</Text>
     </Pressable>
   );
 }
@@ -139,8 +158,8 @@ export function FilterChip({ label, active, onPress }: {
 export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   return (
     <View style={styles.empty}>
-      <Text style={styles.emptyTitle}>{title}</Text>
-      {hint ? <Text style={styles.emptyHint}>{hint}</Text> : null}
+      <Text style={styles.emptyTitle} maxFontSizeMultiplier={SCALE_BODY}>{title}</Text>
+      {hint ? <Text style={styles.emptyHint} maxFontSizeMultiplier={SCALE_BODY}>{hint}</Text> : null}
     </View>
   );
 }
@@ -149,7 +168,7 @@ export function Loading({ label = "Loading…" }: { label?: string }) {
   return (
     <View style={styles.empty} accessibilityLabel={label}>
       <ActivityIndicator color={colors.primary} size="large" />
-      <Text style={styles.emptyHint}>{label}</Text>
+      <Text style={styles.emptyHint} maxFontSizeMultiplier={SCALE_BODY}>{label}</Text>
     </View>
   );
 }
@@ -166,8 +185,8 @@ export function ErrorNotice({ message, onRetry }: { message: string; onRetry?: (
 export function Row({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={styles.rowValue}>{value}</Text>
+      <Text style={styles.rowLabel} maxFontSizeMultiplier={SCALE_CONTROL}>{label}</Text>
+      <Text style={styles.rowValue} maxFontSizeMultiplier={SCALE_CONTROL}>{value}</Text>
     </View>
   );
 }

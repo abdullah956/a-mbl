@@ -80,6 +80,12 @@ export default function Home() {
         </Card>
 
         <Button label="Analyze a message" onPress={() => router.push("/(tabs)/analyze")} />
+        <Button label="Reports and PDF export" kind="secondary"
+                onPress={() => router.push("/reports")} />
+        {user?.role === "school_admin" ? (
+          <Button label="Organization members" kind="secondary"
+                  onPress={() => router.push("/members")} />
+        ) : null}
 
         <Banner tone="info"
                 text="If someone may be in immediate danger, contact a trusted person or an appropriate local service now." />
@@ -91,8 +97,8 @@ export default function Home() {
 function Stat({ label, value }: { label: string; value: number }) {
   return (
     <View style={styles.stat} accessibilityLabel={`${label}: ${value}`}>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
+      <Text style={styles.statValue} maxFontSizeMultiplier={1.5}>{value}</Text>
+      <Text style={styles.statLabel} maxFontSizeMultiplier={1.8}>{label}</Text>
     </View>
   );
 }

@@ -69,5 +69,10 @@ def delete_account(body: schemas.DeleteAccountRequest,
         raise ApiError(503, "cleanup_retry",
                        "Stored evidence could not be removed. Try again shortly.")
 
+    # §7.5: only de-identified aggregate counters may remain — audit rows keep
+    # their action/timestamp for counting but lose every reference to the
+    # account, whether it acted (actor_id) or was acted upon (object_id).
+    conn.execute("UPDATE audit_events SET actor_id = NULL WHERE actor_id = ?", (user["id"],))
+    conn.execute("UPDATE audit_events SET object_id = NULL WHERE object_id = ?", (user["id"],))
     conn.execute("DELETE FROM users WHERE id = ?", (user["id"],))
     audit(conn, None, "account_deleted", "users", None)  # de-identified

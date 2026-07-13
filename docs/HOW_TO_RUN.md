@@ -86,7 +86,8 @@ python -m backend.scripts.create_admin "School name" admin@school.test "a-strong
 ## 5. Tests and checks
 
 ```bash
-# Backend test suite (87 tests)
+# Backend test suite — 105 tests; 1 always skips (the "no Tesseract" path when
+# Tesseract IS installed, and its counterpart when it is not)
 conda activate a-mbl
 python -m pytest backend/tests
 

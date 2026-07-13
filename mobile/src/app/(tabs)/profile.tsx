@@ -10,11 +10,12 @@ import {
 import { api, ApiError } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { colors, formatDate, formatDateTime } from "../../lib/theme";
-import type { GuardianLink, LinkCode } from "../../lib/types";
+import type { GuardianLink, LinkCode, LinkPreview, User } from "../../lib/types";
 
 export default function Profile() {
   const { user, signOut, reloadUser } = useAuth();
   const [links, setLinks] = useState<GuardianLink[]>([]);
+  const [linksError, setLinksError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   // Depend on stable primitives, not the user object: reloadUser() replaces
@@ -24,9 +25,11 @@ export default function Profile() {
   const loadLinks = useCallback(async () => {
     if (!role || role === "school_admin") return;
     try {
+      setLinksError(null);
       setLinks(await api<GuardianLink[]>("/v1/guardian-links"));
-    } catch {
-      // Non-blocking; the section shows an empty list.
+    } catch (err) {
+      setLinksError(err instanceof ApiError ? err.message
+        : "Could not load your links. Pull back to this tab to retry.");
     }
   }, [role]);
 
@@ -46,12 +49,21 @@ export default function Profile() {
         {user.organizations.map((org) => (
           <Row key={org.id} label="Organization" value={org.name} />
         ))}
+        <EditNameSection user={user} onSaved={reloadUser} />
       </Card>
 
       {notice ? <Banner tone="info" text={notice} /> : null}
+      {linksError ? <Banner tone="error" text={linksError} /> : null}
 
       {user.role === "user" ? <UserLinkSection links={links} onChanged={loadLinks} /> : null}
       {user.role === "guardian" ? <GuardianLinkSection links={links} onChanged={loadLinks} /> : null}
+      {user.role === "school_admin" ? (
+        <Card>
+          <Subtitle>Organization</Subtitle>
+          <Button label="Manage members" kind="secondary" onPress={() => router.push("/members")} />
+          <Button label="Reports and PDF export" kind="secondary" onPress={() => router.push("/reports")} />
+        </Card>
+      ) : null}
 
       <PrivacySection onNotice={setNotice} />
 
@@ -68,6 +80,39 @@ export default function Profile() {
   );
 }
 
+function EditNameSection({ user, onSaved }: { user: User; onSaved: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(user.displayName);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api("/v1/me", { method: "PATCH", body: { displayName: name.trim() } });
+      onSaved();
+      setEditing(false);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not update your name.");
+    }
+    setBusy(false);
+  };
+
+  if (!editing) {
+    return <Button label="Edit display name" kind="ghost"
+                   onPress={() => { setName(user.displayName); setEditing(true); }} />;
+  }
+  return (
+    <>
+      <Field label="Display name" value={name} onChangeText={setName}
+             maxLength={60} error={error ?? undefined} />
+      <Button label="Save name" onPress={save} loading={busy} disabled={!name.trim()} />
+      <Button label="Cancel" kind="ghost" onPress={() => setEditing(false)} />
+    </>
+  );
+}
+
 function LinkList({ links, onChanged }: { links: GuardianLink[]; onChanged: () => void }) {
   const revoke = (link: GuardianLink) => {
     Alert.alert("Remove this link?",
@@ -80,7 +125,10 @@ function LinkList({ links, onChanged }: { links: GuardianLink[]; onChanged: () =
             try {
               await api(`/v1/guardian-links/${link.id}`, { method: "DELETE" });
               onChanged();
-            } catch { /* list reload shows the truth */ }
+            } catch (err) {
+              Alert.alert("Could not remove the link",
+                          err instanceof ApiError ? err.message : "Please try again.");
+            }
           },
         },
       ]);
@@ -109,12 +157,16 @@ function UserLinkSection({ links, onChanged }: {
 }) {
   const [code, setCode] = useState<LinkCode | null>(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const createCode = async () => {
     setBusy(true);
+    setError(null);
     try {
       setCode(await api<LinkCode>("/v1/guardian-links", { method: "POST" }));
-    } catch { /* banner-less: button can be pressed again */ }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not create a code. Try again.");
+    }
     setBusy(false);
   };
 
@@ -131,6 +183,7 @@ function UserLinkSection({ links, onChanged }: {
           <Body muted>Share this code with your guardian. Valid until {formatDateTime(code.expiresAt)}, single use.</Body>
         </>
       ) : null}
+      {error ? <Banner tone="error" text={error} /> : null}
       <Button label="Create a link code" kind="secondary" onPress={createCode} loading={busy} />
       <LinkList links={links} onChanged={onChanged} />
     </Card>
@@ -141,8 +194,23 @@ function GuardianLinkSection({ links, onChanged }: {
   links: GuardianLink[]; onChanged: () => void;
 }) {
   const [input, setInput] = useState("");
+  const [preview, setPreview] = useState<LinkPreview | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // §7.1 step 7: review WHO the code belongs to before approving anything.
+  const review = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      setPreview(await api<LinkPreview>("/v1/guardian-links/preview", {
+        method: "POST", body: { code: input.trim() },
+      }));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not check this code.");
+    }
+    setBusy(false);
+  };
 
   const accept = async () => {
     setBusy(true);
@@ -150,6 +218,7 @@ function GuardianLinkSection({ links, onChanged }: {
     try {
       await api("/v1/guardian-links/accept", { method: "POST", body: { code: input.trim() } });
       setInput("");
+      setPreview(null);
       onChanged();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not approve this code.");
@@ -161,12 +230,23 @@ function GuardianLinkSection({ links, onChanged }: {
     <Card>
       <Subtitle>Linked users</Subtitle>
       <Body muted>
-        Enter the one-time code a young person shared with you. Approving it links
-        your accounts and activates theirs.
+        Enter the one-time code a young person shared with you. You will see who
+        it belongs to before you approve the link.
       </Body>
-      <Field label="Link code" value={input} onChangeText={setInput}
+      <Field label="Link code" value={input}
+             onChangeText={(value) => { setInput(value); setPreview(null); }}
              autoCapitalize="characters" autoCorrect={false} error={error ?? undefined} />
-      <Button label="Approve link" onPress={accept} loading={busy} disabled={!input.trim()} />
+      {preview ? (
+        <>
+          <Banner tone="info"
+                  text={`This code links you to ${preview.userName} (age band ${preview.userAgeBand}). Approving activates their account and lets you see their harmful cases.`} />
+          <Button label={`Approve link to ${preview.userName}`} onPress={accept} loading={busy} />
+          <Button label="Not now" kind="ghost"
+                  onPress={() => { setPreview(null); setInput(""); }} />
+        </>
+      ) : (
+        <Button label="Review code" onPress={review} loading={busy} disabled={!input.trim()} />
+      )}
       <LinkList links={links} onChanged={onChanged} />
     </Card>
   );

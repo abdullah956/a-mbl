@@ -138,13 +138,27 @@ def _tolerant_pattern(term: str) -> re.Pattern:
     return re.compile("".join(parts), re.IGNORECASE)
 
 
+def _censor_word(match: re.Match) -> str:
+    word = match.group(0)
+    return word[0] + "•" * (len(word) - 1)
+
+
 def mask_text(text: str, matched_terms: list[str], limit: int = 80) -> str:
     """Censor matched terms (including obfuscated spellings) and truncate —
-    used for previews and PDF reports."""
+    used for previews and PDF reports.
+
+    With no matched terms there is nothing term-specific to censor, and the
+    text would otherwise pass through verbatim — which is exactly the case for
+    a Normal message the user manually kept for review (§6.3). Those get every
+    word censored instead, so a preview never leaks a raw message (§15.2).
+    """
     masked = text
-    for term in sorted(matched_terms, key=len, reverse=True):
-        masked = _tolerant_pattern(term).sub(
-            lambda m: m.group(0)[0] + "•" * (len(m.group(0)) - 1), masked)
+    if matched_terms:
+        for term in sorted(matched_terms, key=len, reverse=True):
+            masked = _tolerant_pattern(term).sub(
+                lambda m: m.group(0)[0] + "•" * (len(m.group(0)) - 1), masked)
+    else:
+        masked = re.sub(r"\w+", _censor_word, masked)
     masked = masked.replace("\n", " ").strip()
     return masked[: limit - 1] + "…" if len(masked) > limit else masked
 

@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS organization_memberships (
     organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     org_role TEXT NOT NULL DEFAULT 'admin',
+    status TEXT NOT NULL DEFAULT 'active',
     created_at TEXT NOT NULL,
     UNIQUE (organization_id, user_id)
 );
@@ -87,6 +88,7 @@ CREATE TABLE IF NOT EXISTS flagged_cases (
     platform_name TEXT,
     sender_alias TEXT,
     status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'reviewed')),
+    review_requested INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     expires_at TEXT NOT NULL
 );
@@ -132,10 +134,16 @@ CREATE TABLE IF NOT EXISTS alerts (
     UNIQUE (recipient_id, case_id)
 );
 
+-- §11: artifact checksum, label map and metrics stay NULL for the lexicon
+-- baseline (no artifact, no measured metrics) and are filled by the trained
+-- model when it lands — the swap-in must not require a schema change.
 CREATE TABLE IF NOT EXISTS model_versions (
     version TEXT PRIMARY KEY,
     kind TEXT NOT NULL,
     thresholds_json TEXT NOT NULL,
+    artifact_checksum TEXT,
+    label_map_json TEXT,
+    metrics_json TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -151,6 +159,18 @@ CREATE TABLE IF NOT EXISTS audit_events (
 """
 
 
+# Columns added after a table already shipped: CREATE TABLE IF NOT EXISTS
+# cannot alter an existing database, so each is retried as an ALTER and the
+# "duplicate column" error on fresh databases is expected and ignored.
+_MIGRATIONS = (
+    "ALTER TABLE flagged_cases ADD COLUMN review_requested INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE organization_memberships ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",
+    "ALTER TABLE model_versions ADD COLUMN artifact_checksum TEXT",
+    "ALTER TABLE model_versions ADD COLUMN label_map_json TEXT",
+    "ALTER TABLE model_versions ADD COLUMN metrics_json TEXT",
+)
+
+
 def connect() -> sqlite3.Connection:
     # check_same_thread=False: FastAPI may run the dependency and the endpoint
     # on different threadpool threads; each request still uses one connection
@@ -159,6 +179,11 @@ def connect() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
+    for statement in _MIGRATIONS:
+        try:
+            conn.execute(statement)
+        except sqlite3.OperationalError:
+            pass
     return conn
 
 

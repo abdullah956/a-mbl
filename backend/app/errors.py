@@ -35,6 +35,11 @@ def install_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def validation_handler(request: Request, exc: RequestValidationError):
+        # §10.5: a body that is not valid JSON at all is a malformed request
+        # (400); a well-formed body with bad values is a validation error (422).
+        if any(err.get("type") == "json_invalid" for err in exc.errors()):
+            return JSONResponse(status_code=400, content=_body(
+                "bad_request", "The request body is not valid JSON."))
         field_errors = {}
         for err in exc.errors():
             loc = [str(part) for part in err.get("loc", []) if part not in ("body", "query", "path")]

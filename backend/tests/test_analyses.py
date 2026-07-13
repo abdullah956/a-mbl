@@ -101,3 +101,50 @@ def test_guardian_reads_linked_harmful_analysis_but_not_normal(client, make_link
     # Normal results have no case, so they stay private to their owner.
     assert client.get(f"/v1/analyses/{normal['id']}",
                       headers=auth(guardian)).status_code == 404
+
+
+def test_safe_result_can_be_flagged_for_review(client, register, auth):
+    session = register("flagger@test.io")
+    response = client.post("/v1/analyses", json={
+        "text": "totally fine message", "flagForReview": True,
+    }, headers=auth(session))
+    assert response.status_code == 201
+    body = response.json()
+    assert body["severity"] == "safe"
+    assert body["caseId"]  # kept as a case despite the safe result (§6.3)
+
+    case = client.get(f"/v1/cases/{body['caseId']}", headers=auth(session)).json()
+    assert case["reviewRequested"] is True
+    assert case["text"] == "totally fine message"
+
+    # A Normal message has no flagged terms, so nothing is term-censored — the
+    # preview must still hide it rather than pass the raw text through (§15.2).
+    assert "totally" not in case["maskedPreview"]
+    assert "•" in case["maskedPreview"]
+
+    # Flagged-safe results never alert anyone.
+    assert client.get("/v1/alerts", headers=auth(session)).json() == []
+
+
+def test_flagged_safe_case_is_masked_in_the_pdf(client, register, auth):
+    session = register("pdfmask@test.io")
+    client.post("/v1/analyses", json={"text": "a private but ordinary note",
+                                      "flagForReview": True}, headers=auth(session))
+
+    from backend.app import pdf as pdf_module
+
+    captured = {}
+    real = pdf_module.build_report
+
+    def spy(**kwargs):
+        captured.update(kwargs)
+        return real(**kwargs)
+
+    pdf_module.build_report = spy
+    try:
+        assert client.post("/v1/reports/pdf", json={}, headers=auth(session)).status_code == 200
+    finally:
+        pdf_module.build_report = real
+
+    preview = captured["cases"][0]["maskedPreview"]
+    assert "private" not in preview and "ordinary" not in preview

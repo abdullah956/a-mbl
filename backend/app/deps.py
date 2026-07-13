@@ -43,10 +43,24 @@ def user_organizations(conn: sqlite3.Connection, user_id: str) -> list[dict]:
     rows = conn.execute(
         "SELECT o.id, o.name FROM organizations o"
         " JOIN organization_memberships m ON m.organization_id = o.id"
-        " WHERE m.user_id = ? AND o.status = 'active'",
+        " WHERE m.user_id = ? AND m.status = 'active' AND o.status = 'active'",
         (user_id,),
     ).fetchall()
     return [{"id": r["id"], "name": r["name"]} for r in rows]
+
+
+def permissions_for(user: sqlite3.Row) -> dict:
+    """What this account may do (roadmap §10.1: /v1/me returns the profile AND
+    permissions). Advisory only — the SQL scope in case_scope is the real
+    control; these flags exist so screens do not have to re-derive role rules."""
+    role, active = user["role"], user["status"] == "active"
+    return {
+        "canAnalyze": active,
+        "canCreateLinkCode": active and role == "user",
+        "canApproveLinkCode": active and role == "guardian",
+        "canShareCases": active and role == "user",
+        "canManageMembers": active and role == "school_admin",
+    }
 
 
 def user_out(conn: sqlite3.Connection, user: sqlite3.Row) -> dict:
@@ -59,6 +73,7 @@ def user_out(conn: sqlite3.Connection, user: sqlite3.Row) -> dict:
         "status": user["status"],
         "createdAt": user["created_at"],
         "organizations": user_organizations(conn, user["id"]),
+        "permissions": permissions_for(user),
     }
 
 
@@ -74,7 +89,8 @@ def case_scope(user: sqlite3.Row) -> tuple[str, list]:
     elif user["role"] == "school_admin":
         clause = ("(fc.owner_id = ? OR fc.id IN ("
                   "SELECT case_id FROM case_shares WHERE revoked_at IS NULL AND organization_id IN ("
-                  "SELECT organization_id FROM organization_memberships WHERE user_id = ?)))")
+                  "SELECT organization_id FROM organization_memberships"
+                  " WHERE user_id = ? AND status = 'active')))")
         params += [user["id"], user["id"]]
     else:
         clause = "fc.owner_id = ?"

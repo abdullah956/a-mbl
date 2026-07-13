@@ -96,3 +96,23 @@ def test_account_deletion_requires_password_and_removes_everything(
                       "case_evidence", "alerts"):
             assert conn.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()["n"] == 0, table
     assert list((config.data_dir() / "evidence").iterdir()) == []
+
+
+def test_account_deletion_deidentifies_audit_rows(client, register, analyze, auth, db):
+    from .conftest import PASSWORD
+
+    session = register("gone@test.io")
+    user_id = session["user"]["id"]
+    analyze(session, "you are an idiot")
+
+    deleted = client.request("DELETE", "/v1/privacy/account",
+                             json={"password": PASSWORD}, headers=auth(session))
+    assert deleted.status_code == 204
+
+    with db() as conn:
+        remaining = conn.execute(
+            "SELECT COUNT(*) AS n FROM audit_events WHERE actor_id = ? OR object_id = ?",
+            (user_id, user_id)).fetchone()["n"]
+        total = conn.execute("SELECT COUNT(*) AS n FROM audit_events").fetchone()["n"]
+    assert remaining == 0     # §7.5: nothing identifiable remains, as actor or object
+    assert total > 0          # ...but the de-identified counters do

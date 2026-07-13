@@ -54,6 +54,7 @@ def _summary(row: sqlite3.Row, viewer_id: str) -> dict:
         "expiresAt": row["expires_at"],
         "hasEvidence": row["evidence_count"] > 0,
         "reviewCount": row["review_count"],
+        "reviewRequested": bool(row["review_requested"]),
     }
 
 
@@ -165,6 +166,9 @@ def patch_case(case_id: str, body: schemas.PatchCaseRequest,
     if body.senderAlias is not None:
         conn.execute("UPDATE flagged_cases SET sender_alias = ? WHERE id = ?",
                      (body.senderAlias.strip() or None, case_id))
+    if body.requestReview:
+        conn.execute("UPDATE flagged_cases SET review_requested = 1 WHERE id = ?", (case_id,))
+        audit(conn, user["id"], "review_requested", "flagged_cases", case_id)
     return _detail(conn, user, case_id)
 
 
@@ -198,7 +202,8 @@ def add_review(case_id: str, body: schemas.ReviewRequest,
         (review_id, case_id, user["id"], body.humanLabel,
          security.encrypt_text(note) if note else None, now_iso()),
     )
-    conn.execute("UPDATE flagged_cases SET status = 'reviewed' WHERE id = ?", (case_id,))
+    conn.execute("UPDATE flagged_cases SET status = 'reviewed', review_requested = 0"
+                 " WHERE id = ?", (case_id,))
     audit(conn, user["id"], "review_added", "review_events", review_id)
     return {"id": review_id, "reviewerName": user["display_name"], "reviewerRole": user["role"],
             "humanLabel": body.humanLabel, "note": note or None, "createdAt": now_iso()}
@@ -283,7 +288,8 @@ def share_case(case_id: str, body: schemas.ShareRequest,
             and analysis["severity"] in ("high", "critical")
             and analysis["confidence"] >= config.ALERT_CONFIDENCE_AT_LEAST):
         admins = conn.execute(
-            "SELECT user_id FROM organization_memberships WHERE organization_id = ?",
+            "SELECT user_id FROM organization_memberships"
+            " WHERE organization_id = ? AND status = 'active'",
             (org["id"],),
         ).fetchall()
         create_alerts_for_case(conn, case, [a["user_id"] for a in admins])

@@ -14,6 +14,8 @@ export interface User {
   status: "pending_guardian" | "active";
   createdAt: string;
   organizations: { id: string; name: string }[];
+  // Advisory: the backend SQL scope is what actually enforces access.
+  permissions: Record<string, boolean>;
 }
 
 export interface AuthResponse {
@@ -61,6 +63,7 @@ export interface CaseSummary {
   expiresAt: string;
   hasEvidence: boolean;
   reviewCount: number;
+  reviewRequested: boolean;
 }
 
 export interface Review {
@@ -132,6 +135,20 @@ export interface Organization {
   name: string;
 }
 
+export interface Member {
+  id: string;
+  displayName: string;
+  email: string;
+  orgRole: string;
+  status: string;
+}
+
+export interface LinkPreview {
+  userName: string;
+  userAgeBand: string;
+  expiresAt: string;
+}
+
 export interface OcrResult {
   text: string;
   meanConfidence: number;
@@ -144,6 +161,7 @@ export interface SummaryReport {
   total: number;
   byLabel: Partial<Record<PrimaryLabel, number>>;
   bySeverity: Partial<Record<Severity, number>>;
+  bySender: Record<string, number>;
   reviewed: number;
   pending: number;
   weekly: { weekStart: string; count: number }[];

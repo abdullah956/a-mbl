@@ -10,6 +10,7 @@ import {
   Banner, Body, Button, Card, Field, FilterChip, Screen, SeverityChip, Subtitle,
 } from "../../components/ui";
 import { api, ApiError, getApiUrl, checkHealth } from "../../lib/api";
+import { normalizeScreenshot } from "../../lib/images";
 import { colors, confidencePercent, formatDate, labelText } from "../../lib/theme";
 import type { AnalysisResult, OcrResult } from "../../lib/types";
 
@@ -18,6 +19,13 @@ const MAX_CHARS = 5000;
 // "unreachable" also covers a failed health check: the scan flow only shows
 // once the server has positively confirmed that OCR is available.
 type OcrStatus = "checking" | "ready" | "unavailable" | "unreachable";
+
+interface AnalysisPayload {
+  text: string;
+  sourceType: "text" | "screenshot";
+  platformName?: string;
+  senderAlias?: string;
+}
 
 export default function Analyze() {
   const [mode, setMode] = useState<"text" | "screenshot">("text");
@@ -49,19 +57,34 @@ export default function Analyze() {
     })();
   }, []);
 
+  const [flagBusy, setFlagBusy] = useState(false);
+  // The payload the visible result was produced from. Flagging must re-submit
+  // exactly that text, never whatever is in the form now.
+  const [analyzed, setAnalyzed] = useState<AnalysisPayload | null>(null);
+
+  const buildPayload = (): AnalysisPayload => ({
+    text: text.trim(),
+    sourceType: textFromScreenshot ? "screenshot" : "text",
+    platformName: platformName.trim() || undefined,
+    senderAlias: senderAlias.trim() || undefined,
+  });
+
+  // Editing any input invalidates the result on screen, so a stale card can
+  // never be flagged or misread as belonging to the new text.
+  const clearResult = () => {
+    setResult(null);
+    setAnalyzed(null);
+  };
+
   const runAnalysis = async () => {
     setBusy(true);
     setError(null);
     setFieldErrors({});
-    setResult(null);
+    clearResult();
+    const payload = buildPayload();
     try {
-      const payload = {
-        text: text.trim(),
-        sourceType: textFromScreenshot ? "screenshot" : "text",
-        platformName: platformName.trim() || undefined,
-        senderAlias: senderAlias.trim() || undefined,
-      };
       setResult(await api<AnalysisResult>("/v1/analyses", { method: "POST", body: payload }));
+      setAnalyzed(payload);
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.message);
@@ -71,6 +94,22 @@ export default function Analyze() {
       }
     } finally {
       setBusy(false);
+    }
+  };
+
+  // §6.3: any result — even a safe one — can be kept for human review.
+  const flagForReview = async () => {
+    if (!analyzed) return;
+    setFlagBusy(true);
+    setError(null);
+    try {
+      setResult(await api<AnalysisResult>("/v1/analyses", {
+        method: "POST", body: { ...analyzed, flagForReview: true },
+      }));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not keep this result.");
+    } finally {
+      setFlagBusy(false);
     }
   };
 
@@ -92,14 +131,14 @@ export default function Analyze() {
 
       const asset = picked.assets[0];
       setOcrBusy(true);
+      const upload = await normalizeScreenshot(asset);
       const form = new FormData();
-      form.append("file", {
-        uri: asset.uri,
-        name: asset.fileName ?? "screenshot.jpg",
-        type: asset.mimeType ?? "image/jpeg",
-      } as unknown as Blob);
+      form.append("file", upload as unknown as Blob);
       const ocr = await api<OcrResult>("/v1/ocr", { formData: form, method: "POST", timeoutMs: 30000 });
       setOcrInfo(ocr);
+      // OCR replaces the message text, so any earlier result no longer
+      // describes what is on screen — drop it before it can be misread or flagged.
+      clearResult();
       setText(ocr.text);
       setTextFromScreenshot(true);
     } catch (err) {
@@ -157,30 +196,36 @@ export default function Analyze() {
         <Field
           label={textFromScreenshot ? "Extracted text (review and correct)" : "Message text"}
           value={text}
-          onChangeText={(value) => { setText(value.slice(0, MAX_CHARS)); }}
+          onChangeText={(value) => { setText(value.slice(0, MAX_CHARS)); clearResult(); }}
           multiline
           placeholder="Paste or type the message you want to check…"
           error={fieldErrors.text}
         />
         <Text style={styles.counter}>{remaining} characters left</Text>
         <Field label="Platform (optional, as you describe it)" value={platformName}
-               onChangeText={setPlatformName} placeholder="e.g. ChatApp"
+               onChangeText={(value) => { setPlatformName(value); clearResult(); }}
+               placeholder="e.g. ChatApp"
                maxLength={60} error={fieldErrors.platformName} />
         <Field label="Sender nickname (optional, unverified)" value={senderAlias}
-               onChangeText={setSenderAlias} placeholder="e.g. anon_17"
+               onChangeText={(value) => { setSenderAlias(value); clearResult(); }}
+               placeholder="e.g. anon_17"
                maxLength={60} error={fieldErrors.senderAlias} />
         <Button label="Analyze" onPress={runAnalysis} loading={busy} disabled={!text.trim()} />
       </Card>
 
       {error ? <Banner tone="error" text={error} /> : null}
 
-      {result ? <ResultCard result={result} onOpenCase={(id) => router.push(`/case/${id}`)} /> : null}
+      {result ? (
+        <ResultCard result={result} onOpenCase={(id) => router.push(`/case/${id}`)}
+                    onFlag={flagForReview} flagBusy={flagBusy} />
+      ) : null}
     </Screen>
   );
 }
 
-function ResultCard({ result, onOpenCase }: {
+function ResultCard({ result, onOpenCase, onFlag, flagBusy }: {
   result: AnalysisResult; onOpenCase: (id: string) => void;
+  onFlag: () => void; flagBusy: boolean;
 }) {
   return (
     <Card>
@@ -203,7 +248,17 @@ function ResultCard({ result, onOpenCase }: {
           <Button label="Open case" kind="secondary" onPress={() => onOpenCase(result.caseId!)} />
         </>
       ) : (
-        <Body muted>Nothing was saved — ordinary messages are discarded right away.</Body>
+        <>
+          <Body muted>Nothing was saved — ordinary messages are discarded right away.</Body>
+          <Body muted>
+            If this still feels wrong, you can keep it as a case and ask for a
+            human review. Keeping it stores the message text for 30 days, and
+            anyone who can already see your cases — a linked guardian, for
+            example — will be able to open it.
+          </Body>
+          <Button label="Keep for human review anyway" kind="secondary"
+                  onPress={onFlag} loading={flagBusy} />
+        </>
       )}
     </Card>
   );

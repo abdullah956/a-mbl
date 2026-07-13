@@ -49,6 +49,35 @@ def create_code(user: sqlite3.Row = Depends(current_user),
     return {"code": code, "expiresAt": expires}
 
 
+def _valid_code_row(conn: sqlite3.Connection, code: str) -> sqlite3.Row:
+    code_row = conn.execute(
+        "SELECT * FROM guardian_link_codes WHERE code_hash = ? AND consumed_at IS NULL"
+        " AND expires_at > ?",
+        (security.sha256_hex(code.strip().upper()), now_iso()),
+    ).fetchone()
+    if code_row is None:
+        raise ApiError(404, "code_invalid", "This code is not valid or has expired.")
+    return code_row
+
+
+@router.post("/guardian-links/preview", response_model=schemas.LinkPreviewOut)
+def preview_code(body: schemas.AcceptLinkRequest, guardian: sqlite3.Row = Depends(active_user),
+                 conn: sqlite3.Connection = Depends(get_db)):
+    """§7.1 step 7: the guardian reviews who the code belongs to BEFORE
+    approving — this does not consume the code or create the link."""
+    if guardian["role"] != "guardian":
+        raise ApiError(403, "forbidden", "Only guardian accounts can review link codes.")
+    rate_limit.check(f"link-preview:{guardian['id']}", 10)
+
+    code_row = _valid_code_row(conn, body.code)
+    user = conn.execute("SELECT display_name, age_band FROM users WHERE id = ?",
+                        (code_row["user_id"],)).fetchone()
+    if user is None:
+        raise ApiError(404, "code_invalid", "This code is not valid or has expired.")
+    return {"userName": user["display_name"], "userAgeBand": user["age_band"],
+            "expiresAt": code_row["expires_at"]}
+
+
 @router.post("/guardian-links/accept", response_model=schemas.GuardianLinkOut, status_code=201)
 def accept_code(body: schemas.AcceptLinkRequest, guardian: sqlite3.Row = Depends(active_user),
                 conn: sqlite3.Connection = Depends(get_db)):
@@ -56,13 +85,7 @@ def accept_code(body: schemas.AcceptLinkRequest, guardian: sqlite3.Row = Depends
         raise ApiError(403, "forbidden", "Only guardian accounts can approve link codes.")
     rate_limit.check(f"link-accept:{guardian['id']}", 10)
 
-    code_row = conn.execute(
-        "SELECT * FROM guardian_link_codes WHERE code_hash = ? AND consumed_at IS NULL"
-        " AND expires_at > ?",
-        (security.sha256_hex(body.code.strip().upper()), now_iso()),
-    ).fetchone()
-    if code_row is None:
-        raise ApiError(404, "code_invalid", "This code is not valid or has expired.")
+    code_row = _valid_code_row(conn, body.code)
 
     existing = conn.execute(
         "SELECT 1 FROM guardian_links WHERE user_id = ? AND guardian_id = ? AND status = 'active'",
@@ -132,8 +155,11 @@ def list_organizations(user: sqlite3.Row = Depends(active_user),
 
 
 def _require_org_admin(conn: sqlite3.Connection, user: sqlite3.Row, org_id: str) -> None:
+    # A suspended membership grants nothing: the status column is the control,
+    # so it is filtered here and in deps.case_scope, not merely displayed.
     member = conn.execute(
-        "SELECT 1 FROM organization_memberships WHERE organization_id = ? AND user_id = ?",
+        "SELECT 1 FROM organization_memberships"
+        " WHERE organization_id = ? AND user_id = ? AND status = 'active'",
         (org_id, user["id"]),
     ).fetchone()
     if user["role"] != "school_admin" or member is None:
@@ -145,12 +171,42 @@ def list_members(org_id: str, user: sqlite3.Row = Depends(active_user),
                  conn: sqlite3.Connection = Depends(get_db)):
     _require_org_admin(conn, user, org_id)
     rows = conn.execute(
-        "SELECT u.id, u.display_name, u.email, m.org_role FROM organization_memberships m"
+        "SELECT u.id, u.display_name, u.email, m.org_role, m.status"
+        " FROM organization_memberships m"
         " JOIN users u ON u.id = m.user_id WHERE m.organization_id = ? ORDER BY u.display_name",
         (org_id,),
     ).fetchall()
     return [{"id": r["id"], "displayName": r["display_name"], "email": r["email"],
-             "orgRole": r["org_role"]} for r in rows]
+             "orgRole": r["org_role"], "status": r["status"]} for r in rows]
+
+
+@router.post("/organizations/{org_id}/members", response_model=schemas.MemberOut, status_code=201)
+def add_member(org_id: str, body: schemas.AddMemberRequest,
+               user: sqlite3.Row = Depends(active_user),
+               conn: sqlite3.Connection = Depends(get_db)):
+    _require_org_admin(conn, user, org_id)
+    rate_limit.check(f"member-add:{user['id']}", 10)
+
+    target = conn.execute("SELECT * FROM users WHERE email = ?", (body.email,)).fetchone()
+    if target is None:
+        raise ApiError(404, "not_found", "No account uses this email address.")
+    if target["role"] != "school_admin":
+        raise ApiError(409, "not_admin_account",
+                       "Only school administrator accounts can join an organization.")
+    if conn.execute(
+        "SELECT 1 FROM organization_memberships WHERE organization_id = ? AND user_id = ?",
+        (org_id, target["id"]),
+    ).fetchone():
+        raise ApiError(409, "already_member", "This account is already a member.")
+
+    conn.execute(
+        "INSERT INTO organization_memberships (id, organization_id, user_id, org_role, status,"
+        " created_at) VALUES (?, ?, ?, 'admin', 'active', ?)",
+        (new_id(), org_id, target["id"], now_iso()),
+    )
+    audit(conn, user["id"], "membership_added", "organization_memberships", target["id"])
+    return {"id": target["id"], "displayName": target["display_name"],
+            "email": target["email"], "orgRole": "admin", "status": "active"}
 
 
 @router.delete("/organizations/{org_id}/members/{member_id}", status_code=204)

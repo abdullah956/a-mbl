@@ -71,6 +71,48 @@ def test_pdf_is_generated_and_masked(client, register, analyze, auth, monkeypatc
     assert captured["summary"]["total"] == 1
 
 
+def test_summary_groups_by_sender_alias_only_when_given(client, register, analyze, auth):
+    session = register("alias@test.io")
+    analyze(session, "you are an idiot", senderAlias="anon_17")
+    analyze(session, "nobody likes you, loser", senderAlias="anon_17")
+    analyze(session, "i will kill you")  # no alias -> not grouped
+
+    summary = client.get("/v1/reports/summary", headers=auth(session)).json()
+    assert summary["bySender"] == {"anon_17": 2}
+    assert summary["total"] == 3
+
+
+def test_pdf_includes_review_notes_for_cases_in_scope(client, register, analyze, auth,
+                                                      monkeypatch):
+    captured = _spy_on_pdf(monkeypatch)
+    session = register("notes@test.io")
+    case_id = analyze(session, "i will kill you tomorrow")["caseId"]
+    client.post(f"/v1/cases/{case_id}/reviews",
+                json={"humanLabel": "threat", "note": "Verified with <b>screenshots & context"},
+                headers=auth(session))
+
+    response = client.post("/v1/reports/pdf", json={}, headers=auth(session))
+    assert response.status_code == 200
+    reviews = captured["cases"][0]["reviews"]
+    assert reviews[0]["humanLabel"] == "threat"
+    assert reviews[0]["note"].startswith("Verified with <b>")  # markup survives escaping
+
+
+def test_pdf_survives_many_long_review_notes(client, register, analyze, auth):
+    # Long, numerous review notes must be capped so the table row still fits an
+    # A4 frame — otherwise ReportLab raises LayoutError and the report 500s.
+    session = register("longnotes@test.io")
+    case_id = analyze(session, "i will kill you tomorrow")["caseId"]
+    for i in range(8):
+        client.post(f"/v1/cases/{case_id}/reviews",
+                    json={"humanLabel": "threat", "note": f"Note {i} " + "x" * 2000},
+                    headers=auth(session))
+
+    response = client.post("/v1/reports/pdf", json={}, headers=auth(session))
+    assert response.status_code == 200
+    assert response.content.startswith(b"%PDF")
+
+
 def test_pdf_survives_markup_in_names_and_case_text(client, register, analyze, auth):
     # ReportLab's Paragraph parses mini-XML; unescaped '<b>' or '&' in the
     # display name or masked preview used to crash the whole report with a 500.

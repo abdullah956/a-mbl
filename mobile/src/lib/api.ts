@@ -168,6 +168,32 @@ export async function api<T>(path: string, options: {
   return await response.json() as T;
 }
 
+export async function apiBinary(path: string, options: {
+  method?: string;
+  body?: unknown;
+  timeoutMs?: number;
+  retryOn401?: boolean;
+} = {}): Promise<ArrayBuffer> {
+  // Like api<T>() but for binary responses (the masked PDF report).
+  const { method = "GET", body, timeoutMs = 30_000, retryOn401 = true } = options;
+
+  const headers: Record<string, string> = {};
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+
+  const response = await rawRequest(path, {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  }, timeoutMs);
+
+  if (response.status === 401 && retryOn401 && await refreshSession()) {
+    return apiBinary(path, { ...options, retryOn401: false });
+  }
+  if (!response.ok) throw await parseError(response);
+  return await response.arrayBuffer();
+}
+
 export async function checkHealth(url: string): Promise<Health> {
   const timeout = withTimeout(5_000);
   try {

@@ -52,6 +52,7 @@ class UserOut(BaseModel):
     status: str
     createdAt: str
     organizations: list[dict] = []
+    permissions: dict[str, bool] = {}
 
 
 class AuthResponse(BaseModel):
@@ -75,6 +76,12 @@ class AcceptLinkRequest(BaseModel):
     code: str = Field(min_length=4, max_length=16)
 
 
+class LinkPreviewOut(BaseModel):
+    userName: str
+    userAgeBand: str
+    expiresAt: str
+
+
 class GuardianLinkOut(BaseModel):
     id: str
     status: str
@@ -89,6 +96,9 @@ class AnalysisRequest(BaseModel):
     sourceType: Literal["text", "screenshot"] = "text"
     platformName: str | None = Field(default=None, max_length=60)
     senderAlias: str | None = Field(default=None, max_length=60)
+    # §6.3: a user may manually flag ANY result — even Normal — for human
+    # review; the flagged text is kept as a case with the user's consent.
+    flagForReview: bool = False
 
     @field_validator("text")
     @classmethod
@@ -130,6 +140,7 @@ class CaseSummary(BaseModel):
     expiresAt: str
     hasEvidence: bool
     reviewCount: int
+    reviewRequested: bool
 
 
 class ReviewOut(BaseModel):
@@ -175,6 +186,7 @@ class CaseListResponse(BaseModel):
 class PatchCaseRequest(BaseModel):
     platformName: str | None = Field(default=None, max_length=60)
     senderAlias: str | None = Field(default=None, max_length=60)
+    requestReview: bool | None = None
 
 
 class ReviewRequest(BaseModel):
@@ -196,6 +208,19 @@ class MemberOut(BaseModel):
     displayName: str
     email: str
     orgRole: str
+    status: str
+
+
+class AddMemberRequest(BaseModel):
+    email: str
+
+    @field_validator("email")
+    @classmethod
+    def valid_email(cls, value: str) -> str:
+        value = value.strip().lower()
+        if not _EMAIL.match(value):
+            raise ValueError("Enter a valid email address.")
+        return value
 
 
 class AlertOut(BaseModel):
@@ -224,6 +249,8 @@ class SummaryReport(BaseModel):
     total: int
     byLabel: dict[str, int]
     bySeverity: dict[str, int]
+    # Grouped by the alias the submitting user typed — unverified by design.
+    bySender: dict[str, int]
     reviewed: int
     pending: int
     weekly: list[dict]

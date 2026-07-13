@@ -74,6 +74,36 @@ def test_either_side_can_revoke(client, make_linked_pair, auth):
     assert client.get("/v1/me", headers=auth(teen)).json()["status"] == "active"
 
 
+def test_guardian_previews_code_before_approving(client, register, register_teen, auth):
+    teen = register_teen()
+    guardian = register("guardian@test.io", role="guardian", year=1980)
+
+    preview = client.post("/v1/guardian-links/preview", json={"code": teen["linkCode"]},
+                          headers=auth(guardian))
+    assert preview.status_code == 200
+    assert preview.json()["userName"] == "teen"
+    assert preview.json()["userAgeBand"] == "13-17"
+
+    # The preview must not consume the code: approval still works afterwards.
+    accepted = client.post("/v1/guardian-links/accept", json={"code": teen["linkCode"]},
+                           headers=auth(guardian))
+    assert accepted.status_code == 201
+
+
+def test_preview_rejects_bad_codes_and_non_guardians(client, register, register_teen, auth):
+    teen = register_teen()
+    guardian = register("guardian@test.io", role="guardian", year=1980)
+    user = register("someone@test.io")
+
+    wrong = client.post("/v1/guardian-links/preview", json={"code": "WRONGCODE"},
+                        headers=auth(guardian))
+    assert wrong.status_code == 404
+
+    denied = client.post("/v1/guardian-links/preview", json={"code": teen["linkCode"]},
+                         headers=auth(user))
+    assert denied.status_code == 403
+
+
 def test_link_grants_no_access_to_unrelated_users(client, make_linked_pair, register, analyze, auth):
     teen, guardian = make_linked_pair()
     stranger = register("stranger@test.io")

@@ -159,3 +159,11 @@ def test_me_requires_token_and_can_update_name(client, register, auth):
     assert client.get("/v1/me", headers=auth(session)).json()["email"] == "me@test.io"
     updated = client.patch("/v1/me", json={"displayName": "New Name"}, headers=auth(session))
     assert updated.json()["displayName"] == "New Name"
+
+
+def test_malformed_json_body_returns_400(client, register, auth):
+    session = register("json@test.io")
+    response = client.post("/v1/analyses", content=b"{not valid json",
+                           headers={**auth(session), "Content-Type": "application/json"})
+    assert response.status_code == 400
+    assert response.json()["code"] == "bad_request"

@@ -12,6 +12,7 @@ import {
 } from "../../components/ui";
 import { api, ApiError, currentAccessToken, getApiUrl, refreshSession } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
+import { normalizeScreenshot } from "../../lib/images";
 import { confidencePercent, formatDate, formatDateTime, labelText } from "../../lib/theme";
 import type { CaseDetail, Organization, PrimaryLabel } from "../../lib/types";
 
@@ -79,6 +80,9 @@ export default function CaseScreen() {
         {detail.needsReview ? (
           <Banner tone="warn" text="The model was uncertain about this result — a human review matters here." />
         ) : null}
+        {detail.reviewRequested && detail.status !== "reviewed" ? (
+          <Banner tone="info" text="A human review of this case has been requested." />
+        ) : null}
       </Card>
 
       <Card>
@@ -96,6 +100,7 @@ export default function CaseScreen() {
         )}
       </Card>
 
+      {isOwner ? <ContextCard detail={detail} onChanged={load} /> : null}
       <ReviewsCard detail={detail} onChanged={load} />
       {isOwner ? <SharingCard detail={detail} onChanged={load} /> : null}
       {isOwner || detail.evidence.length ? (
@@ -104,6 +109,73 @@ export default function CaseScreen() {
 
       {isOwner ? <Button label="Delete this case" kind="danger" onPress={confirmDelete} /> : null}
     </Screen>
+  );
+}
+
+function ContextCard({ detail, onChanged }: { detail: CaseDetail; onChanged: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [platform, setPlatform] = useState(detail.platformName ?? "");
+  const [alias, setAlias] = useState(detail.senderAlias ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api(`/v1/cases/${detail.id}`, {
+        method: "PATCH", body: { platformName: platform, senderAlias: alias },
+      });
+      setEditing(false);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not save the context.");
+    }
+    setBusy(false);
+  };
+
+  const requestReview = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api(`/v1/cases/${detail.id}`, { method: "PATCH", body: { requestReview: true } });
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not request a review.");
+    }
+    setBusy(false);
+  };
+
+  return (
+    <Card>
+      <Subtitle>Context and review</Subtitle>
+      <Body muted>
+        You can add or correct where this happened and who sent it (as you know
+        it), or ask the people who can see this case for a human review.
+      </Body>
+      {editing ? (
+        <>
+          <Field label="Platform (optional, as you describe it)" value={platform}
+                 onChangeText={setPlatform} maxLength={60} placeholder="e.g. ChatApp" />
+          <Field label="Sender nickname (optional, unverified)" value={alias}
+                 onChangeText={setAlias} maxLength={60} placeholder="e.g. anon_17" />
+          <Button label="Save context" onPress={save} loading={busy} />
+          <Button label="Cancel" kind="ghost" onPress={() => setEditing(false)} />
+        </>
+      ) : (
+        <Button label="Edit context (platform, sender)" kind="secondary"
+                onPress={() => {
+                  setPlatform(detail.platformName ?? "");
+                  setAlias(detail.senderAlias ?? "");
+                  setEditing(true);
+                }} />
+      )}
+      {detail.status !== "reviewed" && !detail.reviewRequested ? (
+        <Button label="Request a human review" kind="secondary"
+                onPress={requestReview} loading={busy} />
+      ) : null}
+      {error ? <Banner tone="error" text={error} /> : null}
+    </Card>
   );
 }
 
@@ -276,13 +348,9 @@ function EvidenceCard({ detail, isOwner, apiUrl, onChanged }: {
     if (picked.canceled || !picked.assets?.length) return;
     setBusy(true);
     try {
-      const asset = picked.assets[0];
+      const upload = await normalizeScreenshot(picked.assets[0]);
       const form = new FormData();
-      form.append("file", {
-        uri: asset.uri,
-        name: asset.fileName ?? "evidence.jpg",
-        type: asset.mimeType ?? "image/jpeg",
-      } as unknown as Blob);
+      form.append("file", upload as unknown as Blob);
       await api(`/v1/cases/${detail.id}/evidence`, { formData: form, method: "POST", timeoutMs: 30000 });
       onChanged();
     } catch (err) {

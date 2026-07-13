@@ -234,3 +234,79 @@ def test_only_active_org_members_manage_members(client, register, make_admin, au
     self_removal = client.delete(f"/v1/organizations/{org_id}/members/{admin['user']['id']}",
                                  headers=auth(admin))
     assert self_removal.status_code == 409
+
+
+def test_admin_adds_and_removes_member(client, make_admin, auth):
+    admin = make_admin()
+    second = make_admin(org="Other School", email="admin2@test.io", name="Second Admin")
+    org_id = admin["user"]["organizations"][0]["id"]
+
+    added = client.post(f"/v1/organizations/{org_id}/members",
+                        json={"email": "admin2@test.io"}, headers=auth(admin))
+    assert added.status_code == 201
+    assert added.json()["status"] == "active"
+
+    members = client.get(f"/v1/organizations/{org_id}/members", headers=auth(admin)).json()
+    assert len(members) == 2
+
+    again = client.post(f"/v1/organizations/{org_id}/members",
+                        json={"email": "admin2@test.io"}, headers=auth(admin))
+    assert again.status_code == 409
+
+    removed = client.delete(f"/v1/organizations/{org_id}/members/{second['user']['id']}",
+                            headers=auth(admin))
+    assert removed.status_code == 204
+    members = client.get(f"/v1/organizations/{org_id}/members", headers=auth(admin)).json()
+    assert len(members) == 1
+
+
+def test_suspended_membership_grants_nothing(client, register, analyze, make_admin, auth, db):
+    admin = make_admin()
+    owner = register("owner@test.io")
+    org_id = admin["user"]["organizations"][0]["id"]
+    case_id = analyze(owner, "i will kill you")["caseId"]
+    client.post(f"/v1/cases/{case_id}/shares", json={"organizationId": org_id},
+                headers=auth(owner))
+    assert client.get(f"/v1/cases/{case_id}", headers=auth(admin)).status_code == 200
+
+    with db() as conn:
+        conn.execute("UPDATE organization_memberships SET status = 'suspended'"
+                     " WHERE user_id = ?", (admin["user"]["id"],))
+        conn.commit()
+
+    # The membership status is a control, not a label: it revokes case access
+    # and member management alike.
+    assert client.get(f"/v1/cases/{case_id}", headers=auth(admin)).status_code == 404
+    assert client.get(f"/v1/organizations/{org_id}/members",
+                      headers=auth(admin)).status_code == 403
+
+
+def test_only_admin_accounts_can_join_organizations(client, register, make_admin, auth):
+    admin = make_admin()
+    register("regular@test.io")
+    org_id = admin["user"]["organizations"][0]["id"]
+
+    rejected = client.post(f"/v1/organizations/{org_id}/members",
+                           json={"email": "regular@test.io"}, headers=auth(admin))
+    assert rejected.status_code == 409
+    assert rejected.json()["code"] == "not_admin_account"
+
+    unknown = client.post(f"/v1/organizations/{org_id}/members",
+                          json={"email": "ghost@test.io"}, headers=auth(admin))
+    assert unknown.status_code == 404
+
+
+def test_owner_requests_review_and_a_review_clears_it(client, register, analyze, auth):
+    owner = register("owner@test.io")
+    case_id = analyze(owner, "you are an idiot")["caseId"]
+
+    patched = client.patch(f"/v1/cases/{case_id}", json={"requestReview": True},
+                           headers=auth(owner))
+    assert patched.status_code == 200
+    assert patched.json()["reviewRequested"] is True
+
+    client.post(f"/v1/cases/{case_id}/reviews", json={"note": "Looked at this together."},
+                headers=auth(owner))
+    detail = client.get(f"/v1/cases/{case_id}", headers=auth(owner)).json()
+    assert detail["reviewRequested"] is False
+    assert detail["status"] == "reviewed"

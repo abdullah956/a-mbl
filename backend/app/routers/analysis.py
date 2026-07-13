@@ -9,6 +9,7 @@ for the owner and any actively linked guardian.
 import sqlite3
 
 from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi.concurrency import run_in_threadpool
 
 from .. import classifier, config, ocr, policy, rate_limit, security, schemas
 from ..db import audit, get_db, in_future, new_id, now_iso
@@ -80,17 +81,21 @@ def analyze(body: schemas.AnalysisRequest, user: sqlite3.Row = Depends(active_us
     )
 
     case = None
-    if policy.creates_case(severity):
+    if policy.creates_case(severity) or body.flagForReview:
+        # §6.3: a manual flag keeps ANY result — including Normal — as a case
+        # for human review, with the submitting user's explicit consent.
         case_id = new_id()
         conn.execute(
             "INSERT INTO flagged_cases (id, analysis_id, owner_id, encrypted_text,"
-            " platform_name, sender_alias, created_at, expires_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            " platform_name, sender_alias, review_requested, created_at, expires_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (case_id, analysis_id, user["id"], security.encrypt_text(body.text),
-             body.platformName, body.senderAlias, now_iso(),
+             body.platformName, body.senderAlias, int(body.flagForReview), now_iso(),
              in_future(days=config.CASE_RETENTION_DAYS)),
         )
         case = conn.execute("SELECT * FROM flagged_cases WHERE id = ?", (case_id,)).fetchone()
+        if body.flagForReview:
+            audit(conn, user["id"], "analysis_flagged", "flagged_cases", case_id)
 
         if policy.alert_eligible(prediction, severity):
             guardians = conn.execute(
@@ -140,7 +145,9 @@ async def run_ocr(file: UploadFile = File(...), user: sqlite3.Row = Depends(acti
     if not ocr.available():
         raise ApiError(503, "ocr_unavailable",
                        "Screenshot text extraction is not available on this server yet.")
-    text, confidence = ocr.extract_text(data)
+    # Tesseract is blocking and CPU-heavy; keep it off the event loop so one
+    # slow image cannot stall every other request.
+    text, confidence = await run_in_threadpool(ocr.extract_text, data)
 
     audit(conn, user["id"], "ocr_completed", None, None)
     return {"text": text, "meanConfidence": confidence,

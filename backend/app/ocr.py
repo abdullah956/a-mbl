@@ -11,10 +11,20 @@ import io
 import shutil
 from statistics import mean
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from . import config
 from .errors import ApiError
+
+# Preprocessing thresholds (roadmap §13): stop trying variants once one reads
+# this confidently, and only attempt rotations when a variant read something
+# but read it poorly (so pure-noise uploads never pay for the extra passes).
+GOOD_CONFIDENCE = 0.85
+ROTATE_BELOW = 0.50
+BINARIZE_THRESHOLD = 160
+# Cap the working resolution so no single OCR pass scales with a full 6000px
+# upload — bounds CPU per request regardless of the image the caller sends.
+OCR_MAX_DIMENSION = 2200
 
 JPEG_MAGIC = b"\xff\xd8\xff"
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
@@ -54,21 +64,61 @@ def validate_image(data: bytes) -> str:
     return mime
 
 
+def _read(image: Image.Image) -> tuple[str, float]:
+    """One Tesseract pass. Returns (text, mean word confidence 0..1)."""
+    import pytesseract
+
+    text = pytesseract.image_to_string(image, lang="eng").strip()
+    info = pytesseract.image_to_data(image, lang="eng", output_type=pytesseract.Output.DICT)
+    confidences = [int(c) for c in info.get("conf", []) if str(c).lstrip("-").isdigit() and int(c) >= 0]
+    return text, (mean(confidences) / 100 if confidences else 0.0)
+
+
 def extract_text(data: bytes) -> tuple[str, float]:
-    """Run Tesseract on an already-validated image. Returns (text, mean confidence 0..1)."""
+    """Run Tesseract over preprocessing variants of an already-validated image
+    and return the best (text, mean confidence 0..1) — roadmap §13.
+
+    Variants cover the common screenshot failure modes: plain grayscale,
+    contrast-stretched (washed-out/low-contrast themes), inverted (dark-mode
+    light-on-dark text), and binarized (busy backgrounds). If everything reads
+    poorly, the best variant is retried at 90/180/270 degrees for rotated
+    screenshots.
+    """
     if not available():
         raise ApiError(503, "ocr_unavailable",
                        "Screenshot text extraction is not available on this server yet.")
-    import pytesseract
 
-    image = None
-    try:
-        image = Image.open(io.BytesIO(data)).convert("L")  # grayscale helps Tesseract
-        text = pytesseract.image_to_string(image, lang="eng").strip()
-        info = pytesseract.image_to_data(image, lang="eng", output_type=pytesseract.Output.DICT)
-        confidences = [int(c) for c in info.get("conf", []) if str(c).lstrip("-").isdigit() and int(c) >= 0]
-        confidence = round(mean(confidences) / 100, 2) if confidences else 0.0
-        return text, confidence
-    finally:
-        if image is not None:
-            image.close()
+    with Image.open(io.BytesIO(data)) as original:
+        gray = original.convert("L")
+
+    # Downscale large images before OCR: Tesseract cost grows with pixel count,
+    # and text is still legible at this size. Bounds the work per pass so a
+    # full-resolution upload cannot pin a CPU core.
+    if max(gray.size) > OCR_MAX_DIMENSION:
+        gray.thumbnail((OCR_MAX_DIMENSION, OCR_MAX_DIMENSION))
+
+    variants = [
+        gray,
+        ImageOps.autocontrast(gray, cutoff=1),
+        ImageOps.invert(gray),
+        gray.point(lambda p: 255 if p > BINARIZE_THRESHOLD else 0),
+    ]
+
+    best_text, best_confidence, best_image = "", 0.0, gray
+    for candidate in variants:
+        text, confidence = _read(candidate)
+        if confidence > best_confidence or (text and not best_text):
+            best_text, best_confidence, best_image = text, confidence, candidate
+        if best_text and best_confidence >= GOOD_CONFIDENCE:
+            break
+
+    # Only try rotations when a variant read SOMETHING but read it poorly (a
+    # skewed screenshot). Pure noise reads nothing, so it never triggers the
+    # extra passes — that path stays at the variant cost, not 14 passes.
+    if best_text and best_confidence < ROTATE_BELOW:
+        for angle in (90, 180, 270):
+            text, confidence = _read(best_image.rotate(angle, expand=True))
+            if text and confidence > best_confidence:
+                best_text, best_confidence = text, confidence
+
+    return best_text, round(best_confidence, 2)

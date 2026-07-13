@@ -40,7 +40,8 @@
           "cameraPermission": "a-mbl needs the camera only when you choose to photograph a screen."
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": false,

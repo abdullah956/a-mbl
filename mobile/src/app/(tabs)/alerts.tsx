@@ -3,7 +3,7 @@
 
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useState } from "react";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { AppState, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { EmptyState, ErrorNotice, Loading, SeverityChip } from "../../components/ui";
@@ -25,7 +25,16 @@ export default function Alerts() {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  // §14.2: refresh on focus, when the app returns to the foreground, and via
+  // light polling while the inbox stays open (no push notifications by design).
+  useFocusEffect(useCallback(() => {
+    load();
+    const appState = AppState.addEventListener("change", (state) => {
+      if (state === "active") load();
+    });
+    const poll = setInterval(load, 60_000);
+    return () => { appState.remove(); clearInterval(poll); };
+  }, [load]));
 
   const open = async (alert: AppAlert) => {
     if (!alert.readAt) {

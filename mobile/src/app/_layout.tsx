@@ -24,6 +24,8 @@ export default function RootLayout() {
         <Stack.Screen name="pending" options={{ title: "Guardian approval", headerBackVisible: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="case/[id]" options={{ title: "Case detail" }} />
+        <Stack.Screen name="reports" options={{ title: "Reports" }} />
+        <Stack.Screen name="members" options={{ title: "Organization members" }} />
       </Stack>
     </AuthProvider>
   );
