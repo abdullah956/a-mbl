@@ -38,7 +38,9 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "check:casing": "node scripts/check-casing.mjs",
+    "check": "node scripts/check-casing.mjs && tsc --noEmit"
   },
   "private": true
 }

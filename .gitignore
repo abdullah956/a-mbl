@@ -238,3 +238,6 @@ ml/artifacts/
 
 # macOS
 .DS_Store
+
+# Windows / OneDrive metadata
+desktop.ini
