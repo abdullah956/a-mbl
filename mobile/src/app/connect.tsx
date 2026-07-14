@@ -25,9 +25,12 @@ export default function Connect() {
     setError(null);
     setHealth(null);
     try {
-      const trimmed = url.trim();
-      const result = await checkHealth(trimmed);
-      await setApiUrl(trimmed);
+      const trimmed = url.trim().replace(/\/+$/, "");
+      // Browsers silently add the scheme; do the same so "192.168.1.20:8000" works.
+      const normalized = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+      const result = await checkHealth(normalized);
+      await setApiUrl(normalized);
+      setUrl(normalized);
       markServerConfigured();
       setHealth(result);
     } catch (err) {
@@ -41,8 +44,9 @@ export default function Connect() {
     <Screen>
       <Title>Connect to your local server</Title>
       <Body muted>
-        a-mbl runs against a small server on your Mac. Start it there, then enter
-        the address it prints — the phone and the Mac must be on the same Wi-Fi.
+        a-mbl runs against a small server on a computer you control. Start it
+        there, then enter the address it prints — the phone and that computer
+        must be on the same Wi-Fi.
       </Body>
 
       <Card>
@@ -63,9 +67,10 @@ export default function Connect() {
         <Card tone="danger">
           <Banner tone="error" text={error} />
           <Body muted>
-            Common fixes: confirm the server is running on the Mac, both devices share
-            one Wi-Fi network, the address uses http:// with port 8000, and the Mac
-            firewall allows incoming connections for Python.
+            Common fixes: confirm the server is running, both devices share one
+            Wi-Fi network, the address ends with :8000, and the computer&apos;s
+            firewall allows incoming connections (Windows: the &quot;a-mbl API&quot;
+            rule; macOS: allow Python).
           </Body>
         </Card>
       ) : null}

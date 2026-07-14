@@ -1,6 +1,7 @@
 // Small fetch wrapper: base-URL storage, bearer tokens, single-flight refresh.
 // The refresh token lives in SecureStore; the access token stays in memory.
 
+import * as FileSystem from "expo-file-system/legacy";
 import * as SecureStore from "expo-secure-store";
 
 import type { AuthResponse, Health } from "./types";
@@ -101,7 +102,7 @@ async function rawRequest(path: string, options: RequestInit,
     return await fetch(`${url}${path}`, { ...options, signal: timeout.signal });
   } catch {
     throw new ApiError(0, "unreachable",
-                       "Could not reach the server. Check that the phone and the Mac share the same Wi-Fi.");
+                       "Could not reach the server. Check that the phone and the server's computer share the same Wi-Fi.");
   } finally {
     timeout.done();
   }
@@ -168,6 +169,43 @@ export async function api<T>(path: string, options: {
   return await response.json() as T;
 }
 
+export async function apiUpload<T>(path: string, fileUri: string,
+                                   mimeType: string, retryOn401 = true): Promise<T> {
+  // fetch + FormData{uri} silently fails to send on current React Native, so
+  // uploads go through expo-file-system's native multipart uploader instead.
+  const url = await getApiUrl();
+  if (!url) throw new ApiError(0, "no_server", "Set the server address first.");
+
+  let result: FileSystem.FileSystemUploadResult;
+  try {
+    result = await FileSystem.uploadAsync(`${url}${path}`, fileUri, {
+      httpMethod: "POST",
+      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+      fieldName: "file",
+      mimeType,
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+    });
+  } catch {
+    throw new ApiError(0, "unreachable",
+                       "Could not reach the server. Check that the phone and the server's computer share the same Wi-Fi.");
+  }
+
+  if (result.status === 401 && retryOn401 && await refreshSession()) {
+    return apiUpload<T>(path, fileUri, mimeType, false);
+  }
+  if (result.status < 200 || result.status >= 300) {
+    try {
+      const body = JSON.parse(result.body);
+      throw new ApiError(result.status, body.code ?? "error",
+                         body.message ?? "The upload failed.", body.fieldErrors);
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+      throw new ApiError(result.status, "error", "The upload failed.");
+    }
+  }
+  return JSON.parse(result.body) as T;
+}
+
 export async function checkHealth(url: string): Promise<Health> {
   const timeout = withTimeout(5_000);
   try {
@@ -177,7 +215,7 @@ export async function checkHealth(url: string): Promise<Health> {
     return await response.json() as Health;
   } catch {
     throw new ApiError(0, "unreachable",
-                       "No a-mbl server answered at this address. Check the address, the Wi-Fi network, and the Mac firewall.");
+                       "No a-mbl server answered at this address. Check the address, the Wi-Fi network, and the computer's firewall.");
   } finally {
     timeout.done();
   }

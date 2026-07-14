@@ -10,7 +10,7 @@ import {
   Banner, Body, Button, Card, ErrorNotice, Field, FilterChip, Loading, Row,
   Screen, SeverityChip, Subtitle,
 } from "../../components/ui";
-import { api, ApiError, currentAccessToken, getApiUrl, refreshSession } from "../../lib/api";
+import { api, ApiError, apiUpload, currentAccessToken, getApiUrl, refreshSession } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { confidencePercent, formatDate, formatDateTime, labelText } from "../../lib/theme";
 import type { CaseDetail, Organization, PrimaryLabel } from "../../lib/types";
@@ -277,13 +277,7 @@ function EvidenceCard({ detail, isOwner, apiUrl, onChanged }: {
     setBusy(true);
     try {
       const asset = picked.assets[0];
-      const form = new FormData();
-      form.append("file", {
-        uri: asset.uri,
-        name: asset.fileName ?? "evidence.jpg",
-        type: asset.mimeType ?? "image/jpeg",
-      } as unknown as Blob);
-      await api(`/v1/cases/${detail.id}/evidence`, { formData: form, method: "POST", timeoutMs: 30000 });
+      await apiUpload(`/v1/cases/${detail.id}/evidence`, asset.uri, asset.mimeType ?? "image/jpeg");
       onChanged();
     } catch (err) {
       Alert.alert("Attach failed", err instanceof ApiError ? err.message : "Please try again.");

@@ -9,7 +9,7 @@ import { StyleSheet, Text, View } from "react-native";
 import {
   Banner, Body, Button, Card, Field, FilterChip, Screen, SeverityChip, Subtitle,
 } from "../../components/ui";
-import { api, ApiError, getApiUrl, checkHealth } from "../../lib/api";
+import { api, ApiError, apiUpload, getApiUrl, checkHealth } from "../../lib/api";
 import { colors, confidencePercent, formatDate, labelText } from "../../lib/theme";
 import type { AnalysisResult, OcrResult } from "../../lib/types";
 
@@ -92,13 +92,7 @@ export default function Analyze() {
 
       const asset = picked.assets[0];
       setOcrBusy(true);
-      const form = new FormData();
-      form.append("file", {
-        uri: asset.uri,
-        name: asset.fileName ?? "screenshot.jpg",
-        type: asset.mimeType ?? "image/jpeg",
-      } as unknown as Blob);
-      const ocr = await api<OcrResult>("/v1/ocr", { formData: form, method: "POST", timeoutMs: 30000 });
+      const ocr = await apiUpload<OcrResult>("/v1/ocr", asset.uri, asset.mimeType ?? "image/jpeg");
       setOcrInfo(ocr);
       setText(ocr.text);
       setTextFromScreenshot(true);
