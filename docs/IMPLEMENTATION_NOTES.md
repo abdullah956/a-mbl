@@ -113,9 +113,14 @@ Demo accounts after seeding (password `demo-pass-123`): `demo.user@a-mbl.test`,
 
 ## Known limitations
 
-- The lexicon classifier misses anything outside its word lists and has no
-  measured accuracy; treat every result as the uncertain estimate the UI says
-  it is.
+- Classification is a hybrid: the trained TF-IDF pipeline
+  (`tfidf-logreg-0.2.0`, measured — accuracy 90.6%, false-positive rate 4.8%,
+  threat recall 0.66, macro F1 0.57 on held-out Jigsaw data; see
+  `ml/artifacts/metrics.json`) merged severity-max with the lexicon baseline,
+  which still supplies masking terms and the Body Shaming tag. Without
+  `ml/artifacts/model.joblib` the API falls back to the lexicon alone. Either
+  way, results remain uncertain estimates and low-confidence detections are
+  flagged for human review.
 - Local HTTP on a shared Wi-Fi network only; synthetic content only (§16.4).
 - In-app alerts refresh when the tab gains focus or on pull-to-refresh; there
   are no push notifications by design (§4.2). Email alerts (FR5) are optional
