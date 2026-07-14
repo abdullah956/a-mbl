@@ -1,0 +1,6 @@
+# Training-only dependencies. The backend needs just scikit-learn + joblib to
+# LOAD the model (see backend/requirements.txt); pandas is only used here.
+pandas>=2.2
+scikit-learn>=1.5
+joblib>=1.4
+matplotlib>=3.9
