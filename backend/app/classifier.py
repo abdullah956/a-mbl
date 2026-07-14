@@ -1,14 +1,20 @@
-"""Deterministic lexicon classifier — model version ``lexicon-0.1.0``.
+"""Text classifier: trained model with the lexicon baseline as a safety net.
 
-Returns the five primary labels plus the Body Shaming tag with a heuristic
-confidence in [0, 1]. It is intentionally simple, CPU-free, and explainable:
-every prediction can be traced to matched terms (also used for masking).
+The trained TF-IDF pipeline (ml/train.py -> ml/artifacts/model.joblib) decides
+the primary label and confidence when the artifact is present; the lexicon
+below keeps the two jobs it is structurally better at — ``matched_terms``
+(mask_text needs literal spans to censor) and the Body Shaming tag (no public
+dataset labels it). Verdicts merge severity-max, so a lexicon catch is never
+downgraded: the model only ever ADDS detections. Without the artifact (fresh
+clone, tests) everything falls back to the deterministic lexicon baseline.
 Optional platform/sender metadata is never an input, per roadmap §12.2.
 """
 
 import json
+import os
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from . import lexicon
 from .db import now_iso
@@ -77,7 +83,7 @@ def _confidence(label: str, hit_count: int, targeted: bool) -> float:
     return round(min(value, 0.97), 2)
 
 
-def classify(text: str) -> Prediction:
+def _lexicon_classify(text: str) -> Prediction:
     forms = variants(text)
     targeted = any(_TARGETING.search(form) for form in forms)
 
@@ -114,6 +120,76 @@ def classify(text: str) -> Prediction:
 
     matched = sorted(set(hits + body))
     return Prediction(label, _confidence(label, count, targeted), body_shaming, matched)
+
+
+_SEVERITY_RANK = {"normal": 0, "offensive": 1, "harassment": 2, "hate_speech": 3, "threat": 4}
+
+_ML = None
+
+
+def _load_trained_model() -> None:
+    """Load ml/artifacts/model.joblib if present; otherwise stay on the lexicon.
+
+    A_MBL_FORCE_LEXICON=1 pins the lexicon (the test suite asserts its exact
+    outputs); A_MBL_MODEL_PATH overrides the artifact location.
+    """
+    global _ML, MODEL_VERSION, MODEL_KIND
+    if os.environ.get("A_MBL_FORCE_LEXICON") == "1":
+        return
+    path = Path(
+        os.environ.get("A_MBL_MODEL_PATH")
+        or Path(__file__).resolve().parents[2] / "ml" / "artifacts" / "model.joblib"
+    )
+    if not path.exists():
+        return
+    try:
+        import joblib
+
+        bundle = joblib.load(path)
+        pipeline = bundle["pipeline"]
+        _ML = {
+            "pipeline": pipeline,
+            "index": {label: i for i, label in enumerate(pipeline.classes_)},
+            "severity": bundle["severity"],
+            "thresholds": bundle["thresholds"],
+        }
+        MODEL_VERSION = bundle["modelVersion"]
+        MODEL_KIND = "tfidf-logreg"
+    except Exception as exc:  # a broken artifact must not take the API down
+        print(f"[classifier] could not load {path}: {exc} — using lexicon baseline")
+
+
+def classify(text: str) -> Prediction:
+    lexicon_prediction = _lexicon_classify(text)
+    if _ML is None:
+        return lexicon_prediction
+
+    row = _ML["pipeline"].predict_proba([text])[0]
+    label = "normal"
+    for candidate in _ML["severity"]:  # worst first, per-class bars from validation
+        if row[_ML["index"][candidate]] >= _ML["thresholds"][candidate]:
+            label = candidate
+            break
+    confidence = float(row[_ML["index"][label]])
+
+    # Severity-max merge: whichever detector saw more danger wins; when they
+    # agree, the agreement strengthens the verdict, so keep the higher score.
+    if _SEVERITY_RANK[lexicon_prediction.primary_label] > _SEVERITY_RANK[label]:
+        label = lexicon_prediction.primary_label
+        confidence = lexicon_prediction.confidence
+    elif _SEVERITY_RANK[lexicon_prediction.primary_label] == _SEVERITY_RANK[label]:
+        confidence = max(confidence, lexicon_prediction.confidence)
+
+    return Prediction(
+        label,
+        round(confidence, 2),
+        lexicon_prediction.body_shaming,
+        lexicon_prediction.matched_terms,
+        model_version=MODEL_VERSION,
+    )
+
+
+_load_trained_model()
 
 
 # Reverse of _LEET, so masking also catches the obfuscated spellings that the
@@ -157,6 +233,8 @@ def register_model_version(conn) -> None:
         "needsReviewBelow": config.NEEDS_REVIEW_BELOW,
         "alertConfidenceAtLeast": config.ALERT_CONFIDENCE_AT_LEAST,
     }
+    if _ML is not None:
+        thresholds["classThresholds"] = _ML["thresholds"]
     conn.execute(
         "INSERT OR IGNORE INTO model_versions (version, kind, thresholds_json, created_at)"
         " VALUES (?, ?, ?, ?)",

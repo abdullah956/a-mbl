@@ -34,7 +34,12 @@ JOIN users u ON u.id = fc.owner_id
 def masked_preview(text: str) -> str:
     """Masked previews are computed on demand — the database keeps only the
     encrypted text, never a partially masked plaintext copy."""
-    return classifier.mask_text(text, classifier.classify(text).matched_terms)
+    prediction = classifier.classify(text)
+    if prediction.primary_label != "normal" and not prediction.matched_terms:
+        # Model-flagged with no literal term to censor: withhold the preview
+        # rather than leak raw content (detail view still decrypts in full).
+        return "Content withheld — open the case to view it."
+    return classifier.mask_text(text, prediction.matched_terms)
 
 
 def _summary(row: sqlite3.Row, viewer_id: str) -> dict:
