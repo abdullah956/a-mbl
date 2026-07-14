@@ -147,4 +147,6 @@ export interface SummaryReport {
   reviewed: number;
   pending: number;
   weekly: { weekStart: string; count: number }[];
+  byWeekday: number[]; // Monday..Sunday counts within the range
+  topSenders: { alias: string; count: number }[]; // top 5, viewer-scoped
 }

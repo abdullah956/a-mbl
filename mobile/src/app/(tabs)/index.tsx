@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { BarRows, ColumnChart } from "../../components/charts";
 import { Banner, Body, Button, Card, ErrorNotice, Subtitle, Title } from "../../components/ui";
 import { api } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
@@ -71,6 +72,38 @@ export default function Home() {
           </Card>
         ) : null}
 
+        {summary && summary.total > 0 ? (
+          <Card>
+            <Subtitle>Cases per week</Subtitle>
+            <ColumnChart unit="cases"
+              data={summary.weekly.map((w) => ({ label: weekLabel(w.weekStart), value: w.count }))} />
+          </Card>
+        ) : null}
+
+        {summary && summary.total > 0 && summary.byWeekday?.length === 7 ? (
+          <Card>
+            <Subtitle>By day of week</Subtitle>
+            <ColumnChart unit="cases"
+              data={WEEKDAYS.map((label, i) => ({ label, value: summary.byWeekday[i] }))} />
+          </Card>
+        ) : null}
+
+        {summary && summary.topSenders?.length ? (
+          <Card>
+            <Subtitle>Repeat senders</Subtitle>
+            <Body muted>Sender names are what you typed when saving a case.</Body>
+            <BarRows unit="cases"
+              rows={summary.topSenders.map((s) => ({ label: s.alias, value: s.count }))} />
+          </Card>
+        ) : summary && summary.total > 0 ? (
+          <Card>
+            <Subtitle>Repeat senders</Subtitle>
+            <Body muted>
+              Add a sender alias when analyzing a message to see repeat senders here.
+            </Body>
+          </Card>
+        ) : null}
+
         <Card tone="info">
           <Subtitle>How a-mbl works</Subtitle>
           <Body>
@@ -86,6 +119,14 @@ export default function Home() {
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function weekLabel(isoDate: string): string {
+  const date = new Date(`${isoDate}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return isoDate;
+  return date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
 function Stat({ label, value }: { label: string; value: number }) {
