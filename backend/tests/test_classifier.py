@@ -69,6 +69,16 @@ def test_obfuscated_terms_are_caught():
     assert classifier.classify("you're a looooser").primary_label != "normal"
 
 
+def test_obfuscation_raises_confidence():
+    # Dodging a filter is evidence of intent: the masked spelling must score
+    # HIGHER than the plain one and clear the needs-review threshold.
+    plain = classifier.classify("loser")
+    masked = classifier.classify("l0ser")
+    assert plain.primary_label == masked.primary_label == "offensive"
+    assert masked.confidence > plain.confidence
+    assert policy.needs_review(masked) is False
+
+
 def test_punctuation_does_not_defeat_detection():
     # Regression: the leet map ('!'->'i' etc.) used to glue punctuation onto
     # the preceding word and break every word-boundary match.

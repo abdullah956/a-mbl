@@ -43,6 +43,10 @@ _HARASSMENT = _compile(lexicon.HARASSMENT_PHRASES)
 _OFFENSIVE = _compile(lexicon.OFFENSIVE_TERMS)
 _BODY = _compile(lexicon.BODY_SHAMING_TERMS)
 
+# phrase -> pattern across every list, to test a matched term against the
+# plain lowercase form (same phrase always compiles to the same pattern).
+_ALL_PATTERNS = dict(_THREAT + _HATE + _IDENTITY + _IDENTITY_ATTACK + _HARASSMENT + _OFFENSIVE + _BODY)
+
 
 def variants(text: str) -> list[str]:
     """Search forms for one text: the plain lowercase form (so punctuation like
@@ -78,8 +82,11 @@ class Prediction:
 _BASE_CONFIDENCE = {"threat": 0.62, "hate_speech": 0.60, "harassment": 0.58, "offensive": 0.55}
 
 
-def _confidence(label: str, hit_count: int, targeted: bool) -> float:
-    value = _BASE_CONFIDENCE[label] + 0.13 * hit_count + (0.08 if targeted else 0.0)
+def _confidence(label: str, hit_count: int, targeted: bool, obfuscated: bool = False) -> float:
+    # Deliberate masking (l0ser, loooser) is evidence of intent — someone
+    # dodging a filter knows the word is harmful — so it raises confidence.
+    value = (_BASE_CONFIDENCE[label] + 0.13 * hit_count + (0.08 if targeted else 0.0)
+             + (0.10 if obfuscated else 0.0))
     return round(min(value, 0.97), 2)
 
 
@@ -119,7 +126,13 @@ def _lexicon_classify(text: str) -> Prediction:
         return Prediction("normal", 0.92, False, [])
 
     matched = sorted(set(hits + body))
-    return Prediction(label, _confidence(label, count, targeted), body_shaming, matched)
+    # Obfuscated = at least one matched term is absent from the plain lowercase
+    # text, i.e. it only surfaced after leet translation or repeat collapsing.
+    obfuscated = any(
+        term in _ALL_PATTERNS and not _ALL_PATTERNS[term].search(forms[0])
+        for term in matched
+    )
+    return Prediction(label, _confidence(label, count, targeted, obfuscated), body_shaming, matched)
 
 
 _SEVERITY_RANK = {"normal": 0, "offensive": 1, "harassment": 2, "hate_speech": 3, "threat": 4}
