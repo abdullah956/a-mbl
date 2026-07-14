@@ -118,7 +118,10 @@ Demo accounts after seeding (password `demo-pass-123`): `demo.user@a-mbl.test`,
   it is.
 - Local HTTP on a shared Wi-Fi network only; synthetic content only (§16.4).
 - In-app alerts refresh when the tab gains focus or on pull-to-refresh; there
-  are no push notifications by design (§4.2).
+  are no push notifications by design (§4.2). Email alerts (FR5) are optional
+  and off by default: sent only to non-owner recipients of a newly created
+  alert row, only when the `A_MBL_SMTP_*` variables are set, and never
+  containing message content.
 - Evidence viewing streams through an authorized URL with the current access
   token; if the token has expired the screen shows a "Try again" action that
   refreshes the session and reloads the image.

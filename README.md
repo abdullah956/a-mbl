@@ -11,11 +11,11 @@
 - Classify content as Normal, Offensive, Harassment, Hate Speech, or Threat, with a confidence score and cautious wording.
 - Add Body Shaming as a separate secondary tag.
 - Role-based experiences for Users, Guardians, and School Administrators, enforced by backend query scoping.
-- Keep harmful cases encrypted in a private review history with risk-tiered in-app alerts (no raw content in previews).
+- Keep harmful cases encrypted in a private review history with risk-tiered in-app alerts (no raw content in previews), plus optional email alerts to linked guardians and school administrators (never containing message content).
 - Generate role-scoped summaries and masked PDF reports.
 - Minimize retained content: Normal text is discarded immediately; harmful cases expire after 30 days; account and case deletion remove data and evidence files.
 
-This version does not monitor other applications, intercept messages, connect to social-media accounts, send remote push/SMS/email alerts, or publish to an app store.
+This version does not monitor other applications, intercept messages, connect to social-media accounts, send push or SMS alerts, or publish to an app store. Email alerts are optional and off by default: they are sent only when the server owner configures an SMTP mailbox (see [docs/HOW_TO_RUN.md](docs/HOW_TO_RUN.md)).
 
 ## Technology
 

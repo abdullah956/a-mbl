@@ -10,7 +10,7 @@ import sqlite3
 
 from fastapi import APIRouter, Depends, File, UploadFile
 
-from .. import classifier, config, ocr, policy, rate_limit, security, schemas
+from .. import classifier, config, emailer, ocr, policy, rate_limit, security, schemas
 from ..db import audit, get_db, in_future, new_id, now_iso
 from ..deps import active_user, case_scope
 from ..errors import ApiError
@@ -20,17 +20,38 @@ router = APIRouter(tags=["analysis"])
 
 def create_alerts_for_case(conn: sqlite3.Connection, case: sqlite3.Row,
                            recipient_ids: list[str]) -> None:
-    """Insert alert rows (no raw content, deduplicated per recipient+case)."""
+    """Insert alert rows (no raw content, deduplicated per recipient+case).
+
+    Recipients other than the case owner also get an email when SMTP is
+    configured (FR5) — only on the FIRST alert for this recipient+case, so a
+    repeated share never re-sends. In-app alerts are always the fallback.
+    """
     analysis = conn.execute("SELECT * FROM analysis_events WHERE id = ?",
                             (case["analysis_id"],)).fetchone()
     owner = conn.execute("SELECT display_name FROM users WHERE id = ?",
                          (case["owner_id"],)).fetchone()
+    newly_alerted: list[str] = []
     for recipient_id in recipient_ids:
-        conn.execute(
+        cursor = conn.execute(
             "INSERT OR IGNORE INTO alerts (id, recipient_id, case_id, severity, primary_label,"
             " subject_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (new_id(), recipient_id, case["id"], analysis["severity"],
              analysis["primary_label"], owner["display_name"], now_iso()),
+        )
+        if cursor.rowcount == 1 and recipient_id != case["owner_id"]:
+            newly_alerted.append(recipient_id)
+
+    if newly_alerted and emailer.available():
+        placeholders = ",".join("?" * len(newly_alerted))
+        rows = conn.execute(
+            f"SELECT email, display_name FROM users WHERE id IN ({placeholders})",
+            newly_alerted,
+        ).fetchall()
+        emailer.send_case_alerts(
+            [{"email": r["email"], "displayName": r["display_name"]} for r in rows],
+            severity=analysis["severity"],
+            primary_label=analysis["primary_label"],
+            subject_name=owner["display_name"],
         )
 
 
