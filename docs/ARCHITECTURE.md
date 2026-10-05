@@ -8,8 +8,8 @@ run instructions are in [HOW_TO_RUN.md](HOW_TO_RUN.md).
 ## 1. System overview
 
 ```text
-┌─────────────────────────────┐        same Wi-Fi         ┌──────────────────────────────────┐
-│  Phone (Expo Go)            │   JSON + multipart HTTP   │  Mac                             │
+┌─────────────────────────────┐  same Wi-Fi, or an https  ┌──────────────────────────────────┐
+│  Phone (Expo Go or APK)     │  tunnel for remote tests  │  Mac                             │
 │                             │ ───────────────────────►  │                                  │
 │  mobile/ — Expo Router app  │                           │  backend/ — FastAPI (uvicorn)    │
 │  · SecureStore: refresh     │  ◄───────────────────────  │  · auth / roles / scoping        │
@@ -30,11 +30,16 @@ There is no cloud, no push notifications, and no background monitoring — the
 user submits content explicitly, and alerts are rows the app polls when the
 Alerts tab gains focus.
 
+The app reaches the backend in one of two ways: `http://<mac-ip>:8000` on the
+same Wi-Fi (Expo Go during development, or the APK, which allows cleartext
+HTTP for this reason), or a temporary `https://…trycloudflare.com` quick
+tunnel for remote testers ([DEVICE_TESTING.md](DEVICE_TESTING.md)).
+
 ## 2. Backend layout (`backend/app/`)
 
 | Module | Responsibility |
 | --- | --- |
-| `main.py` | App factory, CORS, router registration, lifespan (model version registration + retention cleanup at startup and every 24 h) |
+| `main.py` | App factory, CORS, router registration, lifespan (model version registration + retention cleanup at startup and every 24 h; a failed run is logged and retried, never ends the loop) |
 | `config.py` | All tunables: token lifetimes, 30-day retention, size limits, 0.70/0.80 confidence thresholds, data directory |
 | `db.py` | SQLite schema (14 tables), per-request connection dependency (commit on success, rollback on error), id/time helpers, audit writer |
 | `security.py` | PBKDF2 password hashing, HMAC-signed 15-min access tokens, rotating 7-day refresh tokens (stored as SHA-256 hashes), Fernet encryption for case text/notes/evidence |
@@ -54,17 +59,20 @@ Alerts tab gains focus.
 
 | Path | Responsibility |
 | --- | --- |
-| `lib/api.ts` | Typed fetch wrapper: base URL + refresh token in SecureStore, access token in memory, single-flight refresh with one retry on 401, uniform `ApiError` |
+| `lib/api.ts` | Typed fetch wrapper: base URL + refresh token in SecureStore, access token in memory, single-flight refresh with one retry on 401, uniform `ApiError`, server-address normalization (`normalizeServerUrl`) |
 | `lib/auth.tsx` | `AuthProvider`: restores the session from the refresh token at boot, exposes `signIn/register/signOut/reloadUser` |
 | `lib/types.ts` | Hand-mirrored API contract types (source of truth: FastAPI's `/docs`) |
 | `lib/theme.ts` | Pastel palette, severity metadata (icon + label + colors — never color alone), date/percent formatters |
-| `components/ui.tsx` | Screen/Card/Button/Field/Banner/SeverityChip/etc. — 48pt touch targets, accessibility labels |
+| `components/ui.tsx` | Screen/Card/Button/Field/Banner/SeverityChip/etc. — 48pt touch targets, accessibility labels; `Screen` keeps focused fields above the keyboard (Android: padding by the keyboard overlap; iOS: `automaticallyAdjustKeyboardInsets`) and adds the status-bar inset only on header-less screens (`safeTop`) |
 | `app/index.tsx` | Boot router: no server → `/connect`; no session → welcome; pending → `/pending`; else tabs |
-| `app/connect.tsx` | Editable server address + `/v1/health` check with troubleshooting hints |
+| `app/connect.tsx` | Editable server address (accepts `host:port` without a scheme, or a pasted `/v1/health` link) + `/v1/health` check that confirms an a-mbl server answered, with troubleshooting hints |
 | `app/(auth)/` | `welcome` → `age` (neutral month/year gate, under-13 stops with nothing saved) → `register` / `login` |
 | `app/pending.tsx` | 13–17 waiting room: shows/regenerates the one-time guardian code, re-checks status |
 | `app/(tabs)/` | `index` (role-scoped summary), `analyze` (text + screenshot→OCR→correct→analyze), `cases` (filterable list), `alerts` (content-free inbox), `profile` (links, privacy, sign-out) |
 | `app/case/[id].tsx` | Case detail: deliberate **Reveal**, human reviews, named-confirmation org sharing, encrypted evidence attach/view, delete |
+| `app/reports.tsx`, `app/members.tsx` | Date-ranged summaries, weekly trend, alias grouping, masked PDF download/share; school-admin member management |
+| `lib/images.ts` | Screenshot normalization before upload (JPEG re-encode, EXIF stripped, longest edge ≤ 2000 px) the multipart body for `/v1/ocr` and evidence (an `expo-file-system` `File` part, because Expo's global `fetch`, `expo/fetch`, rejects React Native `{uri, name, type}` parts), and `imageDataUri` for showing downloaded evidence from memory (Android's `<Image>` does not send request headers) |
+| `app.json`, `scripts/build-apk.sh` | Expo config (Android package `com.ambl.app`, icons, splash, permissions text, cleartext HTTP for the APK); one-command release APK build |
 
 ## 4. Key flows
 
@@ -168,9 +176,11 @@ evidence/shares/reviews/alerts, with evidence files unlinked first.
   validation, privacy export/delete.
 - `tests/fixtures/labeled_samples.jsonl`: shared labeled examples asserted
   against the classifier (labels, Body Shaming tags, determinism, obfuscation).
-- Mobile: strict TypeScript (`npx tsc --noEmit`) and bundle verification
-  (`npx expo export`). Physical-device flows follow the roadmap §18.1 manual
-  checklist.
+- Mobile: strict TypeScript (`npx tsc --noEmit`), ESLint (`npm run lint`),
+  `npx expo-doctor`, and bundle verification (`npx expo export`). The release
+  APK is smoke-tested on an Android emulator against a live backend
+  (`http://10.0.2.2:8000`) before it is sent out. Physical-device flows follow
+  the roadmap §18.1 manual checklist.
 
 ## 8. Day-to-day workflow
 
@@ -179,7 +189,10 @@ evidence/shares/reviews/alerts, with evidence files unlinked first.
 conda activate a-mbl && python -m pytest backend/tests
 
 # after changing mobile code
-cd mobile && npx tsc --noEmit          # phones hot-reload via `npx expo start`
+cd mobile && npx tsc --noEmit && npm run lint   # phones hot-reload via `npx expo start`
+
+# a new installable Android build for testers
+cd mobile && npm run build:apk         # → dist/a-mbl-<version>.apk
 
 # reset all local data (database, keys, evidence)
 rm -rf backend/data && python -m backend.scripts.seed_demo
@@ -196,9 +209,11 @@ document at `/docs` is the reference if the two ever disagree.
    `Prediction` interface, register a new `model_versions` row. Nothing else
    changes. Gates: accuracy ≥ 85 %, FPR < 10 %, macro-F1 ≥ 0.75, threat recall
    ≥ 0.80 — reported honestly either way.
-2. **OCR hardening**: OpenCV preprocessing variants, rotation correction,
-   fixture suite (§13).
-3. **In-app PDF download**: add `expo-file-system` + `expo-sharing` and wire
-   the existing `POST /v1/reports/pdf`.
-4. **Generated API types**: replace the hand-mirrored `types.ts` with
+2. **OCR on OpenCV**: the Pillow preprocessing variants (grayscale,
+   autocontrast, inversion, binarization) and 90/180/270° rotation retry are
+   done; OpenCV skew correction remains the roadmap's (§13) optional next step.
+3. **Generated API types**: replace the hand-mirrored `types.ts` with
    OpenAPI-generated types once the contract stabilizes.
+
+(In-app PDF download/share — once listed here — shipped on 2026-07-12 via
+`expo-file-system` + `expo-sharing` on the Reports screen.)

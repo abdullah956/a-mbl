@@ -1,7 +1,8 @@
 # How to run a-mbl
 
-Everything runs on your Mac; phones connect over the same Wi-Fi through Expo Go.
-Three terminals at most: backend, mobile bundler, and occasional commands.
+Everything runs on your Mac; phones connect over the same Wi-Fi through Expo Go
+or the installable Android APK. Three terminals at most: backend, mobile
+bundler, and occasional commands.
 
 ## 0. Prerequisites (one time)
 
@@ -10,7 +11,8 @@ Three terminals at most: backend, mobile bundler, and occasional commands.
 | Conda (miniconda is fine) | `conda --version` | https://docs.conda.io |
 | Node.js LTS + npm | `node --version` | https://nodejs.org |
 | Expo Go app on each phone | — | App Store / Play Store |
-| Tesseract (optional, enables screenshot OCR) | `tesseract --version` | `brew install tesseract` |
+| Tesseract (optional, enables screenshot OCR) | `conda run -n a-mbl tesseract --version` | `conda install -n a-mbl -c conda-forge tesseract` |
+| JDK 17 + Android SDK (only to build the APK) | `conda run -n a-mbl java -version` | `conda install -n a-mbl -c conda-forge openjdk=17`; the SDK comes with Android Studio |
 
 ## 1. One-time setup
 
@@ -21,6 +23,7 @@ From the repository root:
 conda create -n a-mbl python=3.11 -y
 conda activate a-mbl
 pip install -r backend/requirements.txt
+conda install -c conda-forge tesseract     # optional: screenshot OCR
 
 # Mobile: JavaScript dependencies
 cd mobile && npm install && cd ..
@@ -58,8 +61,9 @@ with the Camera app). On the first screen, enter the server address printed by
 everything. To pre-fill the address during development, start the bundler with
 `EXPO_PUBLIC_API_URL=http://<mac-ip>:8000 npx expo start`.
 
-For step-by-step device testing — your own Android phone, or sending a build
-to someone else's iPhone — see [DEVICE_TESTING.md](DEVICE_TESTING.md).
+For step-by-step device testing — your own phone in Expo Go, building the
+installable Android APK, or running a remote session for a client — see
+[DEVICE_TESTING.md](DEVICE_TESTING.md).
 
 ## 4. Demo data (optional but recommended)
 
@@ -86,15 +90,20 @@ python -m backend.scripts.create_admin "School name" admin@school.test "a-strong
 ## 5. Tests and checks
 
 ```bash
-# Backend test suite — 105 tests; 1 always skips (the "no Tesseract" path when
-# Tesseract IS installed, and its counterpart when it is not)
+# Backend test suite — 115 tests. With Tesseract installed: 114 passed, 1 skipped
+# (the "Tesseract missing" path). Without it, the 6 real-OCR tests skip instead.
 conda activate a-mbl
 python -m pytest backend/tests
 
-# Mobile typecheck and bundle check
+# Mobile typecheck, lint, dependency check, and bundle check
 cd mobile
 npx tsc --noEmit
-npx expo export --platform ios --output-dir /tmp/ambl-export
+npm run lint
+npx expo-doctor
+npx expo export --platform android --output-dir /tmp/ambl-export
+
+# Installable Android APK (writes dist/a-mbl-0.1.0.apk at the repository root)
+npm run build:apk
 ```
 
 ## 6. Troubleshooting
@@ -105,7 +114,7 @@ npx expo export --platform ios --output-dir /tmp/ambl-export
 | Connection worked yesterday, fails today | The Mac's IP changed. Re-run `./backend/run.sh` to see the new address and update it on the app's connection screen (Profile → Change server address). |
 | macOS asks about incoming connections | Allow them for Python/uvicorn (System Settings → Network → Firewall). |
 | `Address already in use` on port 8000 | Another server is running: `pkill -f "uvicorn backend.app.main"` and start again. |
-| Screenshot scan button says OCR unavailable | `brew install tesseract`, then restart the backend. The health check will report `ocrReady: true`. |
+| Screenshot scan button says OCR unavailable | `conda install -n a-mbl -c conda-forge tesseract`, then restart the backend. The health check will report `ocrReady: true`. |
 | Want a completely fresh start | Stop the backend and delete `backend/data/` (database, keys, evidence — all local demo data), then reseed. |
 | Expo Go shows an old version of the app | Shake the device → Reload, or restart `npx expo start` with `-c` to clear the cache. |
 
