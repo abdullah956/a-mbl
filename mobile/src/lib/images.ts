@@ -4,16 +4,11 @@
 // dimension limit. The picker already requests exif:false; this makes the
 // normalization explicit instead of a side effect.
 
+import { File } from "expo-file-system";
 import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
 import { Image } from "react-native";
 
 const MAX_DIMENSION = 2000;
-
-export interface UploadImage {
-  uri: string;
-  name: string;
-  type: string;
-}
 
 async function measure(uri: string): Promise<{ width: number; height: number }> {
   return new Promise((resolve) => {
@@ -23,13 +18,11 @@ async function measure(uri: string): Promise<{ width: number; height: number }> 
   });
 }
 
-export async function normalizeScreenshot(asset: {
+async function normalizeScreenshot(asset: {
   uri: string;
   width?: number;
   height?: number;
-  fileName?: string | null;
-  mimeType?: string | null;
-}): Promise<UploadImage> {
+}): Promise<string> {
   // The picker reports width/height as 0 for some cloud-backed items, so an
   // unknown size is measured rather than assumed small — otherwise an oversized
   // screenshot would skip the resize and be rejected by the server.
@@ -44,5 +37,33 @@ export async function normalizeScreenshot(asset: {
     : [];
   const normalized = await manipulateAsync(asset.uri, actions,
                                            { compress: 0.8, format: SaveFormat.JPEG });
-  return { uri: normalized.uri, name: "screenshot.jpg", type: "image/jpeg" };
+  return normalized.uri;
+}
+
+// An image downloaded through the API client, as a data: URI for <Image>.
+// The bytes stay in memory — decrypted evidence is never written to the
+// phone's storage. Built in chunks so a large screenshot never exceeds the
+// engine's argument limit for String.fromCharCode.
+export function imageDataUri(buffer: ArrayBuffer, mimeType: string): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x2000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x2000));
+  }
+  return `data:${mimeType};base64,${btoa(binary)}`;
+}
+
+// The multipart body for POST /v1/ocr and /v1/cases/{id}/evidence ("file").
+// Expo's global fetch (expo/fetch) only accepts Blob-like FormData parts and
+// rejects React Native's { uri, name, type } objects before the request
+// leaves the phone, so the file goes in as an expo-file-system File, which
+// implements Blob (name, type, bytes).
+export async function screenshotFormData(asset: {
+  uri: string;
+  width?: number;
+  height?: number;
+}): Promise<FormData> {
+  const form = new FormData();
+  form.append("file", new File(await normalizeScreenshot(asset)));
+  return form;
 }

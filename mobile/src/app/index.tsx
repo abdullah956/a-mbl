@@ -7,7 +7,7 @@ export default function Boot() {
   const { ready, hasServer, user } = useAuth();
 
   if (!ready) {
-    return <Screen scroll={false}><Loading label="Starting a-mbl…" /></Screen>;
+    return <Screen scroll={false} safeTop><Loading label="Starting a-mbl…" /></Screen>;
   }
   if (!hasServer) return <Redirect href="/connect" />;
   if (!user) return <Redirect href="/(auth)/welcome" />;

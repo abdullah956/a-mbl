@@ -8,11 +8,13 @@
     "scheme": "ambl",
     "userInterfaceStyle": "light",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "bundleIdentifier": "com.ambl.app"
     },
     "android": {
+      "package": "com.ambl.app",
+      "versionCode": 1,
       "adaptiveIcon": {
-        "backgroundColor": "#F3EFFA",
+        "backgroundColor": "#6C5FC7",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -30,7 +32,7 @@
         {
           "backgroundColor": "#7C6FD0",
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "imageWidth": 120
         }
       ],
       [
@@ -41,7 +43,16 @@
         }
       ],
       "expo-secure-store",
-      "expo-sharing"
+      "expo-sharing",
+      "expo-status-bar",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": false,

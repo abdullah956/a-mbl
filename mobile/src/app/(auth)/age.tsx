@@ -38,7 +38,7 @@ export default function AgeScreen() {
         <Title>Thanks for telling us</Title>
         <Card>
           <Body>
-            a-mbl supports people aged 13 and above, so an account can't be created
+            a-mbl supports people aged 13 and above, so an account can’t be created
             right now. Nothing you entered was saved.
           </Body>
           <Body muted>

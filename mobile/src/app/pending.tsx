@@ -49,9 +49,9 @@ export default function Pending() {
     <Screen>
       <Title>One more step</Title>
       <Body>
-        Because you're under 18, a parent or guardian needs to approve your account.
+        Because you’re under 18, a parent or guardian needs to approve your account.
         Share this one-time code with them — they enter it in their own a-mbl account
-        under Profile → Guardian links.
+        under Profile → Linked users.
       </Body>
 
       <Card>

@@ -10,7 +10,7 @@ import {
   Banner, Body, Button, Card, Field, FilterChip, Screen, SeverityChip, Subtitle,
 } from "../../components/ui";
 import { api, ApiError, getApiUrl, checkHealth } from "../../lib/api";
-import { normalizeScreenshot } from "../../lib/images";
+import { screenshotFormData } from "../../lib/images";
 import { colors, confidencePercent, formatDate, labelText } from "../../lib/theme";
 import type { AnalysisResult, OcrResult } from "../../lib/types";
 
@@ -129,11 +129,8 @@ export default function Analyze() {
         : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.8, exif: false });
       if (picked.canceled || !picked.assets?.length) return;
 
-      const asset = picked.assets[0];
       setOcrBusy(true);
-      const upload = await normalizeScreenshot(asset);
-      const form = new FormData();
-      form.append("file", upload as unknown as Blob);
+      const form = await screenshotFormData(picked.assets[0]);
       const ocr = await api<OcrResult>("/v1/ocr", { formData: form, method: "POST", timeoutMs: 30000 });
       setOcrInfo(ocr);
       // OCR replaces the message text, so any earlier result no longer

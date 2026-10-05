@@ -1,10 +1,10 @@
 // Small shared UI kit: screen scaffold, cards, buttons, fields, banners,
 // severity chips. 44pt touch targets and screen-reader labels throughout.
 
-import React from "react";
+import React, { useRef, useState } from "react";
 import {
-  ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput,
-  View, type TextInputProps,
+  ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet,
+  Text, TextInput, View, type TextInputProps,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -17,16 +17,46 @@ const SCALE_HEADING = 1.5;
 const SCALE_CONTROL = 1.8;
 const SCALE_BODY = 2;
 
-export function Screen({ children, scroll = true }: {
-  children: React.ReactNode; scroll?: boolean;
+// `safeTop` is only for screens without a navigation header (welcome, boot):
+// a header already sits below the status bar, so adding the top inset again
+// would leave an empty band above every titled screen.
+export function Screen({ children, scroll = true, safeTop = false }: {
+  children: React.ReactNode; scroll?: boolean; safeTop?: boolean;
 }) {
   const content = scroll ? (
     <ScrollView contentContainerStyle={styles.scrollBody}
-                keyboardShouldPersistTaps="handled">{children}</ScrollView>
+                keyboardShouldPersistTaps="handled"
+                automaticallyAdjustKeyboardInsets>{children}</ScrollView>
   ) : (
     <View style={styles.scrollBody}>{children}</View>
   );
-  return <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>{content}</SafeAreaView>;
+  return (
+    <SafeAreaView style={styles.screen}
+                  edges={safeTop ? ["top", "left", "right"] : ["left", "right"]}>
+      <KeyboardAware>{content}</KeyboardAware>
+    </SafeAreaView>
+  );
+}
+
+// Android draws edge to edge, so the window no longer shrinks for the
+// keyboard and a focused field low on the screen ends up underneath it.
+// Padding the screen by the overlap shrinks the ScrollView, and Android then
+// scrolls the focused field back into view. The keyboard is reported in
+// window coordinates, so the offset is this screen's own top in the window
+// (the height of any header above it). iOS uses the ScrollView's
+// automaticallyAdjustKeyboardInsets instead.
+function KeyboardAware({ children }: { children: React.ReactNode }) {
+  const frame = useRef<View>(null);
+  const [top, setTop] = useState(0);
+  if (Platform.OS !== "android") return <>{children}</>;
+  return (
+    <View ref={frame} style={styles.fill}
+          onLayout={() => frame.current?.measureInWindow((_x, y) => setTop(y))}>
+      <KeyboardAvoidingView style={styles.fill} behavior="padding" keyboardVerticalOffset={top}>
+        {children}
+      </KeyboardAvoidingView>
+    </View>
+  );
 }
 
 export function Card({ children, tone }: {
@@ -193,6 +223,7 @@ export function Row({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
+  fill: { flex: 1 },
   scrollBody: { padding: 16, gap: 12, paddingBottom: 40 },
   card: {
     backgroundColor: colors.surface, borderRadius: 16, padding: 16, gap: 10,

@@ -2,17 +2,17 @@
 // human reviews, organization sharing, evidence, and deletion.
 
 import * as ImagePicker from "expo-image-picker";
-import { router, useLocalSearchParams } from "expo-router";
-import React, { useCallback, useEffect, useState } from "react";
+import { Redirect, router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import React, { useCallback, useState } from "react";
 import { Alert, Image, StyleSheet, View } from "react-native";
 
 import {
   Banner, Body, Button, Card, ErrorNotice, Field, FilterChip, Loading, Row,
   Screen, SeverityChip, Subtitle,
 } from "../../components/ui";
-import { api, ApiError, currentAccessToken, getApiUrl, refreshSession } from "../../lib/api";
+import { api, ApiError, apiBinary } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
-import { normalizeScreenshot } from "../../lib/images";
+import { imageDataUri, screenshotFormData } from "../../lib/images";
 import { confidencePercent, formatDate, formatDateTime, labelText } from "../../lib/theme";
 import type { CaseDetail, Organization, PrimaryLabel } from "../../lib/types";
 
@@ -21,23 +21,26 @@ const REVIEW_LABELS: (PrimaryLabel | null)[] =
 
 export default function CaseScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { user } = useAuth();
+  const { user, ready } = useAuth();
   const [detail, setDetail] = useState<CaseDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [revealed, setRevealed] = useState(false);
-  const [apiUrl, setApiUrlState] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
+      const next = await api<CaseDetail>(`/v1/cases/${id}`);
       setError(null);
-      setDetail(await api<CaseDetail>(`/v1/cases/${id}`));
+      setDetail(next);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load this case.");
     }
   }, [id]);
 
-  useEffect(() => { load(); getApiUrl().then(setApiUrlState); }, [load]);
+  // Reload on every focus, like the tab screens, so a case reopened from the
+  // list or an alert always shows its latest reviews and shares.
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
+  if (ready && !user) return <Redirect href="/(auth)/welcome" />;
   if (error) return <Screen><ErrorNotice message={error} onRetry={load} /></Screen>;
   if (!detail) return <Screen scroll={false}><Loading label="Loading case…" /></Screen>;
 
@@ -104,7 +107,7 @@ export default function CaseScreen() {
       <ReviewsCard detail={detail} onChanged={load} />
       {isOwner ? <SharingCard detail={detail} onChanged={load} /> : null}
       {isOwner || detail.evidence.length ? (
-        <EvidenceCard detail={detail} isOwner={isOwner} apiUrl={apiUrl} onChanged={load} />
+        <EvidenceCard detail={detail} isOwner={isOwner} onChanged={load} />
       ) : null}
 
       {isOwner ? <Button label="Delete this case" kind="danger" onPress={confirmDelete} /> : null}
@@ -325,20 +328,36 @@ function SharingCard({ detail, onChanged }: { detail: CaseDetail; onChanged: () 
   );
 }
 
-function EvidenceCard({ detail, isOwner, apiUrl, onChanged }: {
-  detail: CaseDetail; isOwner: boolean; apiUrl: string | null; onChanged: () => void;
+function EvidenceCard({ detail, isOwner, onChanged }: {
+  detail: CaseDetail; isOwner: boolean; onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [showImage, setShowImage] = useState(false);
+  const [imageUri, setImageUri] = useState<string | null>(null);
+  const [imageLoading, setImageLoading] = useState(false);
   const [imageError, setImageError] = useState(false);
-  const [imageAttempt, setImageAttempt] = useState(0);
 
-  // The 15-minute access token may have expired since it was issued; retry
-  // refreshes the session and remounts the Image with the new token.
-  const retryImage = async () => {
-    await refreshSession();
+  const evidence = detail.evidence[0];
+
+  // The image comes through the API client — <Image> request headers are not
+  // sent on Android, so an authorized URL would always answer 401 — which
+  // also refreshes an expired session. It is shown from memory only.
+  const loadImage = async () => {
+    if (!evidence) return;
+    setImageLoading(true);
     setImageError(false);
-    setImageAttempt((value) => value + 1);
+    try {
+      const buffer = await apiBinary(`/v1/cases/${detail.id}/evidence/${evidence.id}`);
+      setImageUri(imageDataUri(buffer, evidence.mimeType));
+    } catch {
+      setImageError(true);
+    }
+    setImageLoading(false);
+  };
+
+  const toggleImage = () => {
+    if (!showImage && !imageUri) loadImage();
+    setShowImage((value) => !value);
   };
 
   const attach = async () => {
@@ -348,9 +367,7 @@ function EvidenceCard({ detail, isOwner, apiUrl, onChanged }: {
     if (picked.canceled || !picked.assets?.length) return;
     setBusy(true);
     try {
-      const upload = await normalizeScreenshot(picked.assets[0]);
-      const form = new FormData();
-      form.append("file", upload as unknown as Blob);
+      const form = await screenshotFormData(picked.assets[0]);
       await api(`/v1/cases/${detail.id}/evidence`, { formData: form, method: "POST", timeoutMs: 30000 });
       onChanged();
     } catch (err) {
@@ -358,9 +375,6 @@ function EvidenceCard({ detail, isOwner, apiUrl, onChanged }: {
     }
     setBusy(false);
   };
-
-  const evidence = detail.evidence[0];
-  const token = currentAccessToken();
 
   return (
     <Card>
@@ -371,14 +385,11 @@ function EvidenceCard({ detail, isOwner, apiUrl, onChanged }: {
             One screenshot attached ({Math.round(evidence.sizeBytes / 1024)} KB, stored
             encrypted, deleted with the case).
           </Body>
-          {showImage && apiUrl && token && !imageError ? (
+          {showImage && imageLoading ? <Loading label="Loading screenshot…" /> : null}
+          {showImage && imageUri && !imageError ? (
             <Image
-              key={imageAttempt}
               accessibilityLabel="Attached screenshot evidence"
-              source={{
-                uri: `${apiUrl}/v1/cases/${detail.id}/evidence/${evidence.id}`,
-                headers: { Authorization: `Bearer ${token}` },
-              }}
+              source={{ uri: imageUri }}
               style={styles.evidence}
               resizeMode="contain"
               onError={() => setImageError(true)}
@@ -387,11 +398,11 @@ function EvidenceCard({ detail, isOwner, apiUrl, onChanged }: {
           {showImage && imageError ? (
             <>
               <Banner tone="error" text="The screenshot could not be loaded." />
-              <Button label="Try again" kind="secondary" onPress={retryImage} />
+              <Button label="Try again" kind="secondary" onPress={loadImage} />
             </>
           ) : null}
           <Button label={showImage ? "Hide screenshot" : "View screenshot"} kind="secondary"
-                  onPress={() => setShowImage((value) => !value)} />
+                  onPress={toggleImage} />
         </>
       ) : isOwner ? (
         <>

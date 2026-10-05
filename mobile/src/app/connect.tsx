@@ -1,11 +1,11 @@
-// Pre-login connection screen (roadmap §9.3): the Mac's address is editable
+// Pre-login connection screen (roadmap §9.3): the server address is editable
 // here, checked against /v1/health, and saved without touching source code.
 
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 
 import { Banner, Body, Button, Card, Field, Screen, Subtitle, Title } from "../components/ui";
-import { checkHealth, getApiUrl, setApiUrl } from "../lib/api";
+import { checkHealth, getApiUrl, normalizeServerUrl, setApiUrl } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import type { Health } from "../lib/types";
 
@@ -25,9 +25,10 @@ export default function Connect() {
     setError(null);
     setHealth(null);
     try {
-      const trimmed = url.trim();
-      const result = await checkHealth(trimmed);
-      await setApiUrl(trimmed);
+      const address = normalizeServerUrl(url);
+      const result = await checkHealth(address);
+      await setApiUrl(address);
+      setUrl(address);
       markServerConfigured();
       setHealth(result);
     } catch (err) {
@@ -39,10 +40,11 @@ export default function Connect() {
 
   return (
     <Screen>
-      <Title>Connect to your local server</Title>
+      <Title>Connect to the a-mbl server</Title>
       <Body muted>
-        a-mbl runs against a small server on your Mac. Start it there, then enter
-        the address it prints — the phone and the Mac must be on the same Wi-Fi.
+        a-mbl checks messages with a small server. Enter the address you were
+        given: an http:// address when the phone is on the same Wi-Fi as the
+        server, or an https:// link when testing from anywhere.
       </Body>
 
       <Card>
@@ -63,9 +65,10 @@ export default function Connect() {
         <Card tone="danger">
           <Banner tone="error" text={error} />
           <Body muted>
-            Common fixes: confirm the server is running on the Mac, both devices share
-            one Wi-Fi network, the address uses http:// with port 8000, and the Mac
-            firewall allows incoming connections for Python.
+            Common fixes: confirm the server is still running, copy the address
+            exactly as you received it, and for an http:// address make sure the
+            phone and the server share one Wi-Fi network (port 8000) and the
+            server’s firewall allows incoming connections.
           </Body>
         </Card>
       ) : null}
@@ -81,7 +84,7 @@ export default function Connect() {
 
       <Banner
         tone="warn"
-        text="This local connection is for practice with made-up content only. Do not submit real sensitive conversations here."
+        text="This test server is for practice with made-up content only. Do not submit real sensitive conversations here."
       />
     </Screen>
   );

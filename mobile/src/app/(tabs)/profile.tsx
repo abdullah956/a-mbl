@@ -1,5 +1,6 @@
 // Profile: account info, guardian links, privacy controls, sign-out.
 
+import Constants from "expo-constants";
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useState } from "react";
 import { Alert, Share, StyleSheet, Text } from "react-native";
@@ -7,7 +8,7 @@ import { Alert, Share, StyleSheet, Text } from "react-native";
 import {
   Banner, Body, Button, Card, Field, Row, Screen, Subtitle, Title,
 } from "../../components/ui";
-import { api, ApiError } from "../../lib/api";
+import { api, ApiError, getApiUrl } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { colors, formatDate, formatDateTime } from "../../lib/theme";
 import type { GuardianLink, LinkCode, LinkPreview, User } from "../../lib/types";
@@ -17,6 +18,7 @@ export default function Profile() {
   const [links, setLinks] = useState<GuardianLink[]>([]);
   const [linksError, setLinksError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [serverUrl, setServerUrl] = useState<string | null>(null);
 
   // Depend on stable primitives, not the user object: reloadUser() replaces
   // the object on every /v1/me response, which would otherwise re-trigger the
@@ -33,7 +35,13 @@ export default function Profile() {
     }
   }, [role]);
 
-  useFocusEffect(useCallback(() => { loadLinks(); reloadUser(); }, [loadLinks, reloadUser]));
+  // The server address is re-read on focus: it may have just been changed on
+  // the connect screen.
+  useFocusEffect(useCallback(() => {
+    loadLinks();
+    reloadUser();
+    getApiUrl().then(setServerUrl);
+  }, [loadLinks, reloadUser]));
 
   if (!user) return null;
 
@@ -69,13 +77,15 @@ export default function Profile() {
 
       <Card>
         <Subtitle>App</Subtitle>
+        <Row label="App version" value={Constants.expoConfig?.version ?? "—"} />
+        <Row label="Server" value={serverUrl ?? "—"} />
         <Button label="Change server address" kind="secondary" onPress={() => router.push("/connect")} />
         <Button label="Sign out" kind="secondary"
                 onPress={async () => { await signOut(); router.replace("/(auth)/welcome"); }} />
       </Card>
 
       <Banner tone="info"
-              text="a-mbl is a local prototype for practice with made-up content. Results are estimates, not judgments." />
+              text="a-mbl is a prototype for practice with made-up content. Results are estimates, not judgments." />
     </Screen>
   );
 }

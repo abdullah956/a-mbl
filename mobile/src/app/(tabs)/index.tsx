@@ -1,7 +1,7 @@
 // Home: recent activity summary for the signed-in role plus safety framing.
 
-import { router } from "expo-router";
-import React, { useCallback, useEffect, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import React, { useCallback, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -26,7 +26,9 @@ export default function Home() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  // On every focus, not just the first mount: after analyzing a message the
+  // user comes back here and the totals must already include it.
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const scopeLine = user?.role === "guardian"
     ? "Cases below cover you and your linked users."

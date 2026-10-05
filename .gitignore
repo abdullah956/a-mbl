@@ -232,6 +232,11 @@ mobile/dist/
 *.tsbuildinfo
 expo-env.d.ts
 
+# Built Android packages (mobile/scripts/build-apk.sh writes dist/*.apk)
+/dist/
+*.apk
+*.aab
+
 # Datasets and trained model artifacts stay out of Git (roadmap §12.1)
 ml/data/
 ml/artifacts/

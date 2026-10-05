@@ -2,14 +2,16 @@
 // unverified sender-alias grouping, and masked PDF download (§15, §8.4).
 
 import { File, Paths } from "expo-file-system";
+import { Redirect, useFocusEffect } from "expo-router";
 import * as Sharing from "expo-sharing";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import {
   Banner, Body, Button, Card, ErrorNotice, Field, FilterChip, Loading, Screen, Subtitle,
 } from "../components/ui";
 import { api, ApiError, apiBinary } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import { colors, labelText, severityMeta } from "../lib/theme";
 import type { PrimaryLabel, Severity, SummaryReport } from "../lib/types";
 
@@ -24,6 +26,7 @@ type PresetKey = (typeof PRESETS)[number]["key"] | "custom";
 const isoDay = (date: Date) => date.toISOString().slice(0, 10);
 
 export default function Reports() {
+  const { user, ready } = useAuth();
   const [preset, setPreset] = useState<PresetKey>("30");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
@@ -46,23 +49,25 @@ export default function Reports() {
   }, [preset, customFrom, customTo]);
 
   const load = useCallback(async () => {
-    setError(null);
     try {
       const { rangeFrom, rangeTo } = range();
       const params = new URLSearchParams();
       if (rangeFrom) params.set("rangeFrom", rangeFrom);
       if (rangeTo) params.set("rangeTo", rangeTo);
       const query = params.toString();
-      setSummary(await api<SummaryReport>(`/v1/reports/summary${query ? `?${query}` : ""}`));
+      const next = await api<SummaryReport>(`/v1/reports/summary${query ? `?${query}` : ""}`);
+      setError(null);
+      setSummary(next);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load the report.");
     }
   }, [range]);
 
-  useEffect(() => {
-    // Custom dates apply via the button so typing doesn't fire requests.
+  // Presets load immediately (and again on focus); custom dates apply via the
+  // button so typing doesn't fire requests.
+  useFocusEffect(useCallback(() => {
     if (preset !== "custom") load();
-  }, [preset]); // load is derived from preset; custom applies explicitly
+  }, [preset, load]));
 
   const downloadPdf = async () => {
     setPdfBusy(true);
@@ -88,6 +93,8 @@ export default function Reports() {
     }
     setPdfBusy(false);
   };
+
+  if (ready && !user) return <Redirect href="/(auth)/welcome" />;
 
   return (
     <Screen>

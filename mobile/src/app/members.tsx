@@ -2,7 +2,8 @@
 // Members are existing school-administrator accounts; adding one grants
 // access to cases shared with the organization, removing revokes it.
 
-import React, { useCallback, useEffect, useState } from "react";
+import { Redirect, useFocusEffect } from "expo-router";
+import React, { useCallback, useState } from "react";
 import { Alert, StyleSheet, View } from "react-native";
 
 import {
@@ -13,8 +14,9 @@ import { useAuth } from "../lib/auth";
 import type { Member, Organization } from "../lib/types";
 
 export default function Members() {
-  const { user } = useAuth();
+  const { user, ready } = useAuth();
 
+  if (ready && !user) return <Redirect href="/(auth)/welcome" />;
   if (!user || user.role !== "school_admin") {
     return (
       <Screen>
@@ -48,14 +50,15 @@ function OrgMembers({ org, selfId }: { org: Organization; selfId: string }) {
 
   const load = useCallback(async () => {
     try {
+      const next = await api<Member[]>(`/v1/organizations/${org.id}/members`);
       setError(null);
-      setMembers(await api<Member[]>(`/v1/organizations/${org.id}/members`));
+      setMembers(next);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load members.");
     }
   }, [org.id]);
 
-  useEffect(() => { load(); }, [load]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const add = async () => {
     setBusy(true);
@@ -112,7 +115,7 @@ function OrgMembers({ org, selfId }: { org: Organization; selfId: string }) {
              autoCapitalize="none" keyboardType="email-address" autoCorrect={false}
              placeholder="admin@school.test" error={addError ?? undefined} />
       <Body muted>
-        Only existing school administrator accounts (created on the Mac with
+        Only existing school administrator accounts (created on the server with
         create_admin) can be added.
       </Body>
       <Button label="Add member" onPress={add} loading={busy} disabled={!email.trim()} />

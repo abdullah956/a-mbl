@@ -5,7 +5,7 @@ import { Banner, Body, Button, Card, Screen, Title } from "../../components/ui";
 
 export default function Welcome() {
   return (
-    <Screen>
+    <Screen safeTop>
       <Title>a-mbl</Title>
       <Body>
         A calm space to check hurtful messages. Type or scan a message you received,
