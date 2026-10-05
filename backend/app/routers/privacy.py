@@ -66,6 +66,8 @@ def delete_account(body: schemas.DeleteAccountRequest,
               if not delete_case_evidence_files(conn, case["id"])]
     if failed:
         # Abort before dropping rows: keep the records that let cleanup retry.
+        # Commit first so the audit record of the failure is not rolled back.
+        conn.commit()
         raise ApiError(503, "cleanup_retry",
                        "Stored evidence could not be removed. Try again shortly.")
 

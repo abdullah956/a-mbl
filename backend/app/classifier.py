@@ -18,6 +18,9 @@ MODEL_KIND = "lexicon-baseline"
 
 _LEET = str.maketrans({"0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t", "@": "a", "$": "s", "!": "i"})
 
+# Symbol "letters" that end a word are punctuation, not leet ("k1ll you!").
+_TRAILING_SYMBOLS = re.compile(r"[!@$]+(?!\w)")
+
 _TARGETING = re.compile(r"\b(you|your|youre|you're|yourself|u|ur|urself)\b")
 
 
@@ -41,12 +44,15 @@ _BODY = _compile(lexicon.BODY_SHAMING_TERMS)
 def variants(text: str) -> list[str]:
     """Search forms for one text: the plain lowercase form (so punctuation like
     'kill you!' still matches), the leet-translated form (so '1d1ot' matches),
-    and repeat-collapsed forms of each (so 'loooser' matches). Each variant is
+    a leet form with word-final '!@$' dropped first (so 'k1ll you!' matches —
+    translating that '!' to 'i' would glue it onto the word), and
+    repeat-collapsed forms of each (so 'loooser' matches). Each variant is
     searched SEPARATELY — never concatenated — so a phrase can never match
     across variant boundaries."""
     lowered = text.lower()
     forms: list[str] = []
-    for base in (lowered, lowered.translate(_LEET)):
+    for base in (lowered, lowered.translate(_LEET),
+                 _TRAILING_SYMBOLS.sub("", lowered).translate(_LEET)):
         for form in (base,
                      re.sub(r"(.)\1{2,}", r"\1\1", base),   # loooser -> looser
                      re.sub(r"(.)\1{1,}", r"\1", base)):    # looser  -> loser
@@ -144,21 +150,19 @@ def _censor_word(match: re.Match) -> str:
 
 
 def mask_text(text: str, matched_terms: list[str], limit: int = 80) -> str:
-    """Censor matched terms (including obfuscated spellings) and truncate —
-    used for previews and PDF reports.
+    """Censor the text down to its shape and truncate — used for previews and
+    PDF reports, which must never carry a readable raw message (§15.2).
 
-    With no matched terms there is nothing term-specific to censor, and the
-    text would otherwise pass through verbatim — which is exactly the case for
-    a Normal message the user manually kept for review (§6.3). Those get every
-    word censored instead, so a preview never leaks a raw message (§15.2).
+    Matched terms go first, as whole phrases, because their obfuscated
+    spellings contain symbols a word pattern would split on ('$hit', 'st!upid').
+    Every remaining word is then reduced to its first letter as well:
+    censoring only the harmful terms left the rest of the message — names,
+    places, times — readable in the preview and the PDF.
     """
     masked = text
-    if matched_terms:
-        for term in sorted(matched_terms, key=len, reverse=True):
-            masked = _tolerant_pattern(term).sub(
-                lambda m: m.group(0)[0] + "•" * (len(m.group(0)) - 1), masked)
-    else:
-        masked = re.sub(r"\w+", _censor_word, masked)
+    for term in sorted(matched_terms, key=len, reverse=True):
+        masked = _tolerant_pattern(term).sub(_censor_word, masked)
+    masked = re.sub(r"\w+", _censor_word, masked)
     masked = masked.replace("\n", " ").strip()
     return masked[: limit - 1] + "…" if len(masked) > limit else masked
 

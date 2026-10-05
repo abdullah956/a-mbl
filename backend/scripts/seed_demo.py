@@ -13,6 +13,7 @@ Accounts (password for all: demo-pass-123):
 """
 
 import sys
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -47,26 +48,35 @@ def seed() -> None:
             response.raise_for_status()
             return response.json()
 
+        def bearer(session):
+            return {"Authorization": f"Bearer {session['accessToken']}"}
+
+        def has_cases(session):
+            return client.get("/v1/cases", headers=bearer(session)).json().get("total", 0) > 0
+
         user = register("demo.user@a-mbl.test", "Demo User", "user", 2000, 5)
         guardian = register("demo.guardian@a-mbl.test", "Demo Guardian", "guardian", 1985, 3)
-        teen = register("demo.teen@a-mbl.test", "Demo Teen", "user", 2011, 2)
+        # Relative to today so the teen stays 13-17 whenever the seed runs.
+        teen = register("demo.teen@a-mbl.test", "Demo Teen", "user", date.today().year - 15, 1)
 
         if teen.get("linkCode"):
             client.post("/v1/guardian-links/accept",
-                        json={"code": teen["linkCode"]},
-                        headers={"Authorization": f"Bearer {guardian['accessToken']}"})
+                        json={"code": teen["linkCode"]}, headers=bearer(guardian))
 
-        for text, source, platform, alias in SAMPLES:
-            client.post("/v1/analyses", json={
-                "text": text, "sourceType": source,
-                "platformName": platform, "senderAlias": alias,
-            }, headers={"Authorization": f"Bearer {user['accessToken']}"})
+        # Re-running the seed must not pile up duplicate sample cases.
+        if not has_cases(user):
+            for text, source, platform, alias in SAMPLES:
+                client.post("/v1/analyses", json={
+                    "text": text, "sourceType": source,
+                    "platformName": platform, "senderAlias": alias,
+                }, headers=bearer(user))
 
         # A harmful message submitted by the linked teen alerts the guardian.
-        client.post("/v1/analyses", json={
-            "text": "watch your back after class, you will regret this",
-            "sourceType": "text",
-        }, headers={"Authorization": f"Bearer {teen['accessToken']}"})
+        if not has_cases(teen):
+            client.post("/v1/analyses", json={
+                "text": "watch your back after class, you will regret this",
+                "sourceType": "text",
+            }, headers=bearer(teen))
 
     try:
         create_admin("Demo High School", "demo.admin@a-mbl.test", PASSWORD, "Demo Admin")

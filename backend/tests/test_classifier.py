@@ -78,6 +78,17 @@ def test_punctuation_does_not_defeat_detection():
     assert classifier.classify("nobody likes you!!").primary_label == "harassment"
 
 
+def test_leet_plus_trailing_punctuation_is_caught():
+    # Regression: the leet map turned the final '!' into 'i' ("k1ll you!" ->
+    # "kill youi"), so obfuscation AND punctuation together read as Normal and
+    # a threat was discarded without an alert.
+    assert classifier.classify("i will k1ll you!").primary_label == "threat"
+    assert classifier.classify("you are an 1d1ot!").primary_label == "offensive"
+    assert classifier.classify("ur a l0ser!!").primary_label == "offensive"
+    # Symbols INSIDE a word are still leet, not punctuation.
+    assert classifier.classify("you are a $hit person").primary_label == "offensive"
+
+
 def test_no_phantom_matches_across_normalization_variants():
     # Regression: variants were joined with "\n" that \s+ could traverse, so
     # "...hurt" + "you..." matched "hurt you" across the boundary.
@@ -99,6 +110,16 @@ def test_mask_text_censors_matched_terms():
     masked = classifier.mask_text("you are an idiot and a loser", prediction.matched_terms)
     assert "idiot" not in masked and "loser" not in masked
     assert "i••••" in masked and "l••••" in masked
+
+
+def test_mask_text_hides_the_rest_of_the_message_too():
+    # Regression: only the matched harmful words were censored, so names,
+    # places and times in the same message stayed readable in previews/PDFs.
+    text = "i will kill you, meet me at Riverside Park at 9"
+    masked = classifier.mask_text(text, classifier.classify(text).matched_terms)
+    for word in ("kill", "meet", "Riverside", "Park"):
+        assert word not in masked
+    assert masked.startswith("i w••• k")
 
 
 def test_mask_text_truncates_long_content():

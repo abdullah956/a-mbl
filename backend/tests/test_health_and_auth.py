@@ -161,6 +161,43 @@ def test_me_requires_token_and_can_update_name(client, register, auth):
     assert updated.json()["displayName"] == "New Name"
 
 
+def test_keys_are_created_at_startup_private_and_never_replaced(client):
+    import stat
+
+    from backend.app import config, security
+
+    signing = config.data_dir() / "signing.key"
+    fernet = config.data_dir() / "fernet.key"
+    assert signing.exists() and fernet.exists()          # made before any request
+    assert stat.S_IMODE(signing.stat().st_mode) == 0o600
+    before = fernet.read_bytes()
+    security.ensure_keys()                               # a second call is a no-op
+    assert fernet.read_bytes() == before
+
+
+def test_schema_is_recreated_if_the_database_file_disappears(client):
+    from backend.app import config
+    from backend.app.db import connect
+
+    config.db_path().unlink()
+    conn = connect()
+    try:
+        tables = {r["name"] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'")}
+    finally:
+        conn.close()
+    assert {"users", "flagged_cases", "alerts"} <= tables
+
+
+def test_rate_limiter_forgets_idle_keys():
+    from backend.app import rate_limit
+
+    rate_limit.reset()
+    rate_limit.check("sweep:test", 5)
+    rate_limit._sweep(now=10 ** 9)   # far in the future: the key is idle
+    assert "sweep:test" not in rate_limit._events
+
+
 def test_malformed_json_body_returns_400(client, register, auth):
     session = register("json@test.io")
     response = client.post("/v1/analyses", content=b"{not valid json",

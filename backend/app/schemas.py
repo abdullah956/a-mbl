@@ -1,7 +1,7 @@
 """Pydantic request/response models.
 
 Field names are camelCase because they ARE the JSON contract used by the
-mobile client (mirrored in mobile/lib/types.ts).
+mobile client (mirrored in mobile/src/lib/types.ts).
 """
 
 import re

@@ -35,7 +35,9 @@ def create_alerts_for_case(conn: sqlite3.Connection, case: sqlite3.Row,
         )
 
 
-def _stored_prediction(analysis: sqlite3.Row) -> classifier.Prediction:
+def stored_prediction(analysis: sqlite3.Row) -> classifier.Prediction:
+    """Rebuild the immutable model result from its analysis row, so later
+    decisions (e.g. alerting on share) apply the same policy functions."""
     return classifier.Prediction(
         primary_label=analysis["primary_label"],
         confidence=analysis["confidence"],
@@ -45,7 +47,7 @@ def _stored_prediction(analysis: sqlite3.Row) -> classifier.Prediction:
 
 
 def _result_payload(analysis: sqlite3.Row, case: sqlite3.Row | None) -> dict:
-    prediction = _stored_prediction(analysis)
+    prediction = stored_prediction(analysis)
     uncertain = bool(analysis["needs_review"])
     return {
         "id": analysis["id"],

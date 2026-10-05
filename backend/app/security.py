@@ -12,6 +12,7 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import secrets
 from datetime import timedelta
 
@@ -46,9 +47,15 @@ def verify_password(password: str, stored: str) -> bool:
 
 def _key_file(name: str, generator) -> bytes:
     path = config.data_dir() / name
-    if not path.exists():
-        path.write_bytes(generator())
-        path.chmod(0o600)
+    # Exclusive create: a check-then-write could let two concurrent first
+    # requests each write a different key, silently orphaning anything already
+    # encrypted with the overwritten one. Only one writer can ever win here.
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        return path.read_bytes()
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(generator())
     return path.read_bytes()
 
 
@@ -58,6 +65,12 @@ def _signing_key() -> bytes:
 
 def _fernet() -> Fernet:
     return Fernet(_key_file("fernet.key", Fernet.generate_key))
+
+
+def ensure_keys() -> None:
+    """Create both keys before the server takes requests (called at startup)."""
+    _signing_key()
+    _fernet()
 
 
 # --- access tokens ------------------------------------------------------------

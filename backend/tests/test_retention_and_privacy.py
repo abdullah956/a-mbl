@@ -98,6 +98,36 @@ def test_account_deletion_requires_password_and_removes_everything(
     assert list((config.data_dir() / "evidence").iterdir()) == []
 
 
+def test_failed_evidence_unlink_keeps_case_and_records_the_failure(
+        client, register, analyze, auth, db, png_bytes, monkeypatch):
+    # Regression: the 503 rolled the whole request back, including the audit
+    # row that records the failed unlink (§16.2 "failed cleanup is recorded").
+    import pathlib
+
+    session = register("stuck@test.io")
+    case_id = analyze(session, "i will kill you")["caseId"]
+    client.post(f"/v1/cases/{case_id}/evidence",
+                files={"file": ("shot.png", png_bytes(), "image/png")}, headers=auth(session))
+
+    def failing_unlink(self, missing_ok=False):
+        raise OSError("disk busy")
+
+    # A scoped patch: monkeypatch.undo() would also undo the fixture's
+    # A_MBL_DATA_DIR and point the rest of the test at the real data folder.
+    with monkeypatch.context() as patch:
+        patch.setattr(pathlib.Path, "unlink", failing_unlink)
+        response = client.delete(f"/v1/cases/{case_id}", headers=auth(session))
+    assert response.status_code == 503
+    assert response.json()["code"] == "cleanup_retry"
+
+    assert client.get(f"/v1/cases/{case_id}", headers=auth(session)).status_code == 200
+    with db() as conn:
+        failures = conn.execute(
+            "SELECT COUNT(*) AS n FROM audit_events WHERE action = 'evidence_cleanup_failed'"
+        ).fetchone()["n"]
+    assert failures == 1
+
+
 def test_account_deletion_deidentifies_audit_rows(client, register, analyze, auth, db):
     from .conftest import PASSWORD
 
@@ -116,3 +146,29 @@ def test_account_deletion_deidentifies_audit_rows(client, register, analyze, aut
         total = conn.execute("SELECT COUNT(*) AS n FROM audit_events").fetchone()["n"]
     assert remaining == 0     # §7.5: nothing identifiable remains, as actor or object
     assert total > 0          # ...but the de-identified counters do
+
+
+def test_cleanup_loop_survives_a_failed_run(monkeypatch):
+    """A failing run (e.g. a locked database) must not end the 24-hour loop."""
+    import asyncio
+
+    import pytest
+
+    from backend.app import main
+
+    runs = []
+
+    def flaky_cleanup():
+        runs.append(1)
+        if len(runs) == 1:
+            raise RuntimeError("database is locked")
+        raise asyncio.CancelledError  # stop the loop after the second run
+
+    async def no_wait(_seconds):
+        return None
+
+    monkeypatch.setattr(main, "_run_cleanup", flaky_cleanup)
+    monkeypatch.setattr(main.asyncio, "sleep", no_wait)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(main._cleanup_loop())
+    assert len(runs) == 2

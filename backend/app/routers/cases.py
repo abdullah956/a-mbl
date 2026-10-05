@@ -10,12 +10,12 @@ import sqlite3
 
 from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
 
-from .. import classifier, config, ocr, rate_limit, security, schemas
+from .. import classifier, config, ocr, policy, rate_limit, security, schemas
 from ..db import audit, get_db, new_id, now_iso
 from ..deps import active_user, case_scope, load_case, require_case_owner
 from ..errors import ApiError
 from ..retention import delete_case_evidence_files, evidence_file
-from .analysis import create_alerts_for_case
+from .analysis import create_alerts_for_case, stored_prediction
 
 router = APIRouter(prefix="/cases", tags=["cases"])
 
@@ -68,7 +68,7 @@ def _detail(conn: sqlite3.Connection, user: sqlite3.Row, case_id: str) -> dict:
 
     reviews = conn.execute(
         "SELECT re.*, u.display_name, u.role FROM review_events re"
-        " JOIN users u ON u.id = re.reviewer_id WHERE re.case_id = ? ORDER BY re.created_at",
+        " JOIN users u ON u.id = re.reviewer_id WHERE re.case_id = ? ORDER BY re.created_at, re.rowid",
         (case_id,),
     ).fetchall()
     shares = []
@@ -140,8 +140,10 @@ def list_cases(
         f" JOIN analysis_events ae ON ae.id = fc.analysis_id {where}",
         params + filter_params,
     ).fetchone()["n"]
+    # Timestamps have one-second resolution; rowid keeps cases created in the
+    # same second newest-first instead of in arbitrary order.
     rows = conn.execute(
-        f"{_SUMMARY_SQL} {where} ORDER BY fc.created_at DESC LIMIT ? OFFSET ?",
+        f"{_SUMMARY_SQL} {where} ORDER BY fc.created_at DESC, fc.rowid DESC LIMIT ? OFFSET ?",
         params + filter_params + [pageSize, (page - 1) * pageSize],
     ).fetchall()
     return {"items": [_summary(r, user["id"]) for r in rows], "total": total,
@@ -179,6 +181,9 @@ def delete_case(case_id: str, user: sqlite3.Row = Depends(active_user),
     require_case_owner(user, case)
     if not delete_case_evidence_files(conn, case_id):
         # Keep the row so the failed unlink can be retried (here or by cleanup).
+        # Commit first: the error would otherwise roll back the audit record
+        # of the failure along with everything else.
+        conn.commit()
         raise ApiError(503, "cleanup_retry",
                        "The attached screenshot could not be removed. Try again shortly.")
     conn.execute("DELETE FROM flagged_cases WHERE id = ?", (case_id,))
@@ -196,17 +201,18 @@ def add_review(case_id: str, body: schemas.ReviewRequest,
 
     review_id = new_id()
     note = (body.note or "").strip()
+    created = now_iso()
     conn.execute(
         "INSERT INTO review_events (id, case_id, reviewer_id, human_label, encrypted_note, created_at)"
         " VALUES (?, ?, ?, ?, ?, ?)",
         (review_id, case_id, user["id"], body.humanLabel,
-         security.encrypt_text(note) if note else None, now_iso()),
+         security.encrypt_text(note) if note else None, created),
     )
     conn.execute("UPDATE flagged_cases SET status = 'reviewed', review_requested = 0"
                  " WHERE id = ?", (case_id,))
     audit(conn, user["id"], "review_added", "review_events", review_id)
     return {"id": review_id, "reviewerName": user["display_name"], "reviewerRole": user["role"],
-            "humanLabel": body.humanLabel, "note": note or None, "createdAt": now_iso()}
+            "humanLabel": body.humanLabel, "note": note or None, "createdAt": created}
 
 
 @router.post("/{case_id}/evidence", response_model=schemas.EvidenceOut, status_code=201)
@@ -227,15 +233,16 @@ async def attach_evidence(case_id: str, file: UploadFile = File(...),
     mime = ocr.validate_image(data)
 
     evidence_id = new_id()
+    created = now_iso()
     evidence_file(evidence_id).write_bytes(security.encrypt_bytes(data))
     conn.execute(
         "INSERT INTO case_evidence (id, case_id, file_name, mime_type, size_bytes, content_hash, created_at)"
         " VALUES (?, ?, ?, ?, ?, ?, ?)",
         (evidence_id, case_id, "screenshot", mime, len(data),
-         hashlib.sha256(data).hexdigest(), now_iso()),
+         hashlib.sha256(data).hexdigest(), created),
     )
     audit(conn, user["id"], "evidence_attached", "case_evidence", evidence_id)
-    return {"id": evidence_id, "mimeType": mime, "sizeBytes": len(data), "createdAt": now_iso()}
+    return {"id": evidence_id, "mimeType": mime, "sizeBytes": len(data), "createdAt": created}
 
 
 @router.get("/{case_id}/evidence/{evidence_id}")
@@ -273,20 +280,18 @@ def share_case(case_id: str, body: schemas.ShareRequest,
         raise ApiError(409, "already_shared", "This case is already shared with that organization.")
 
     share_id = new_id()
+    shared = now_iso()
     conn.execute(
         "INSERT INTO case_shares (id, case_id, organization_id, shared_by, shared_at)"
         " VALUES (?, ?, ?, ?, ?)",
-        (share_id, case_id, org["id"], user["id"], now_iso()),
+        (share_id, case_id, org["id"], user["id"], shared),
     )
     audit(conn, user["id"], "case_shared", "case_shares", share_id)
 
     # Alert the organization's administrators when the case is alert-eligible.
     analysis = conn.execute("SELECT * FROM analysis_events WHERE id = ?",
                             (case["analysis_id"],)).fetchone()
-    from .. import config
-    if (analysis["primary_label"] in ("harassment", "hate_speech", "threat")
-            and analysis["severity"] in ("high", "critical")
-            and analysis["confidence"] >= config.ALERT_CONFIDENCE_AT_LEAST):
+    if policy.alert_eligible(stored_prediction(analysis), analysis["severity"]):
         admins = conn.execute(
             "SELECT user_id FROM organization_memberships"
             " WHERE organization_id = ? AND status = 'active'",
@@ -295,7 +300,7 @@ def share_case(case_id: str, body: schemas.ShareRequest,
         create_alerts_for_case(conn, case, [a["user_id"] for a in admins])
 
     return {"id": share_id, "organizationId": org["id"], "organizationName": org["name"],
-            "sharedAt": now_iso()}
+            "sharedAt": shared}
 
 
 @router.delete("/{case_id}/shares/{share_id}", status_code=204)
@@ -325,7 +330,8 @@ def revoke_share(case_id: str, share_id: str, user: sqlite3.Row = Depends(active
           AND recipient_id NOT IN (
             SELECT m.user_id FROM organization_memberships m
             JOIN case_shares cs ON cs.organization_id = m.organization_id
-            WHERE cs.case_id = :case_id AND cs.revoked_at IS NULL)
+            WHERE cs.case_id = :case_id AND cs.revoked_at IS NULL
+              AND m.status = 'active')
         """,
         {"case_id": case_id, "org_id": share["organization_id"], "owner_id": case["owner_id"]},
     )

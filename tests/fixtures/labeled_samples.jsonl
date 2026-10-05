@@ -32,3 +32,6 @@
 {"text": "i am proud to be gay and happy today", "label": "normal", "bodyShaming": false}
 {"text": "that concert was sick, we absolutely killed it", "label": "normal", "bodyShaming": false}
 {"text": "yall coming to the cookout later?", "label": "normal", "bodyShaming": false}
+{"text": "i will k1ll you!", "label": "threat", "bodyShaming": false}
+{"text": "you are a l00ser!", "label": "offensive", "bodyShaming": false}
+{"text": "you are an 1d1ot!!", "label": "offensive", "bodyShaming": false}

@@ -12,14 +12,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from backend.app import security  # noqa: E402
+from backend.app import config, security  # noqa: E402
 from backend.app.db import audit, connect, new_id, now_iso  # noqa: E402
 
 
 def create_admin(org_name: str, email: str, password: str, display_name: str) -> None:
     email = email.strip().lower()
-    if len(password) < 8:
-        raise SystemExit("Password must be at least 8 characters.")
+    if len(password) < config.MIN_PASSWORD_CHARS:
+        raise SystemExit(f"Password must be at least {config.MIN_PASSWORD_CHARS} characters.")
 
     conn = connect()
     try:

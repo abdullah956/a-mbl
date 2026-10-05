@@ -87,6 +87,44 @@ def test_link_revocation_removes_guardian_alerts(client, make_linked_pair, analy
     assert len(client.get("/v1/alerts", headers=auth(teen)).json()) == 1  # owner keeps theirs
 
 
+def test_alert_shows_the_owners_current_name(client, make_linked_pair, analyze, auth):
+    teen, guardian = make_linked_pair()
+    analyze(teen, "i will kill you")
+    client.patch("/v1/me", json={"displayName": "Renamed Teen"}, headers=auth(teen))
+
+    alerts = client.get("/v1/alerts", headers=auth(guardian)).json()
+    assert alerts[0]["subjectName"] == "Renamed Teen"
+
+
+def test_unshare_removes_alert_of_member_whose_other_membership_is_suspended(
+        client, register, analyze, make_admin, auth, db):
+    # Admin B belongs to School A and School B. The case is shared with both.
+    owner = register("owner@test.io")
+    admin_a = make_admin(org="School A", email="a@test.io")
+    admin_b = make_admin(org="School B", email="b@test.io")
+    org_a = admin_a["user"]["organizations"][0]["id"]
+    org_b = admin_b["user"]["organizations"][0]["id"]
+    client.post(f"/v1/organizations/{org_a}/members", json={"email": "b@test.io"},
+                headers=auth(admin_a))
+
+    case_id = analyze(owner, "i will kill you")["caseId"]
+    share_a = client.post(f"/v1/cases/{case_id}/shares", json={"organizationId": org_a},
+                          headers=auth(owner)).json()
+    client.post(f"/v1/cases/{case_id}/shares", json={"organizationId": org_b},
+                headers=auth(owner))
+    assert len(client.get("/v1/alerts", headers=auth(admin_b)).json()) == 1
+
+    # A suspended School B membership grants nothing, so once School A's share
+    # is revoked, admin B no longer has any right to the alert.
+    with db() as conn:
+        conn.execute("UPDATE organization_memberships SET status = 'suspended'"
+                     " WHERE organization_id = ? AND user_id = ?",
+                     (org_b, admin_b["user"]["id"]))
+        conn.commit()
+    client.delete(f"/v1/cases/{case_id}/shares/{share_a['id']}", headers=auth(owner))
+    assert client.get("/v1/alerts", headers=auth(admin_b)).json() == []
+
+
 def test_mark_alert_read_and_scoping(client, register, analyze, auth):
     owner = register("owner@test.io")
     other = register("other@test.io")

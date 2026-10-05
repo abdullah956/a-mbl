@@ -233,7 +233,8 @@ def remove_member(org_id: str, member_id: str, user: sqlite3.Row = Depends(activ
           AND case_id NOT IN (
             SELECT cs.case_id FROM case_shares cs
             JOIN organization_memberships m ON m.organization_id = cs.organization_id
-            WHERE m.user_id = :member_id AND cs.revoked_at IS NULL)
+            WHERE m.user_id = :member_id AND cs.revoked_at IS NULL
+              AND m.status = 'active')
         """,
         {"member_id": member_id, "org_id": org_id},
     )

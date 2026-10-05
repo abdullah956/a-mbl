@@ -310,3 +310,14 @@ def test_owner_requests_review_and_a_review_clears_it(client, register, analyze,
     detail = client.get(f"/v1/cases/{case_id}", headers=auth(owner)).json()
     assert detail["reviewRequested"] is False
     assert detail["status"] == "reviewed"
+
+
+def test_cases_in_the_same_second_list_newest_first(client, register, analyze, auth, db):
+    session = register("order@test.io")
+    ids = [analyze(session, text)["caseId"] for text in
+           ("you are stupid", "you are an idiot and a loser", "i will hurt you")]
+    with db() as conn:  # one shared timestamp: only the tie-breaker can order them
+        conn.execute("UPDATE flagged_cases SET created_at = '2026-01-01T00:00:00+00:00'")
+        conn.commit()
+    listed = client.get("/v1/cases", headers=auth(session)).json()["items"]
+    assert [item["id"] for item in listed] == list(reversed(ids))

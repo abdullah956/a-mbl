@@ -9,31 +9,44 @@ This is a local demonstration server for synthetic data only.
 """
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import classifier, config, retention
+from . import classifier, config, retention, security
 from .db import connect
 from .errors import install_handlers
 from .routers import alerts, analysis, auth, cases, health, links, privacy, reports
 
 CLEANUP_INTERVAL_SECONDS = 24 * 60 * 60
 
+log = logging.getLogger("a-mbl")
+
+
+def _run_cleanup() -> None:
+    conn = connect()
+    try:
+        retention.cleanup(conn)
+    finally:
+        conn.close()
+
 
 async def _cleanup_loop():
     while True:
         await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
-        conn = connect()
+        # One failed run (a locked database, a full disk) must not end the
+        # loop: retention would silently stop until the next restart.
         try:
-            retention.cleanup(conn)
-        finally:
-            conn.close()
+            _run_cleanup()
+        except Exception:
+            log.exception("Retention cleanup failed; retrying at the next interval.")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    security.ensure_keys()
     conn = connect()
     try:
         classifier.register_model_version(conn)

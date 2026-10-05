@@ -171,19 +171,29 @@ _MIGRATIONS = (
 )
 
 
+# Database files whose schema and migrations already ran in this process, so
+# ordinary requests skip re-running the whole script on every connection.
+_schema_ready: set[str] = set()
+
+
 def connect() -> sqlite3.Connection:
+    path = config.db_path()
+    # A file deleted while the server runs must get its schema back.
+    fresh = not path.exists()
     # check_same_thread=False: FastAPI may run the dependency and the endpoint
     # on different threadpool threads; each request still uses one connection
     # sequentially, which is safe.
-    conn = sqlite3.connect(config.db_path(), timeout=10, check_same_thread=False)
+    conn = sqlite3.connect(path, timeout=10, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.executescript(SCHEMA)
-    for statement in _MIGRATIONS:
-        try:
-            conn.execute(statement)
-        except sqlite3.OperationalError:
-            pass
+    if fresh or str(path) not in _schema_ready:
+        conn.executescript(SCHEMA)
+        for statement in _MIGRATIONS:
+            try:
+                conn.execute(statement)
+            except sqlite3.OperationalError:
+                pass
+        _schema_ready.add(str(path))
     return conn
 
 

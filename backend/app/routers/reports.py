@@ -90,7 +90,7 @@ def report_pdf(body: schemas.PdfRequest, user: sqlite3.Row = Depends(active_user
         " ae.primary_label, ae.confidence, ae.body_shaming, ae.severity"
         " FROM flagged_cases fc JOIN analysis_events ae ON ae.id = fc.analysis_id"
         f" WHERE {scope_sql} AND fc.created_at >= ? AND fc.created_at < ?"
-        " ORDER BY fc.created_at DESC LIMIT 500",
+        " ORDER BY fc.created_at DESC, fc.rowid DESC LIMIT 500",
         params + [from_day + "T00:00:00", to_exclusive],
     ).fetchall()
 
@@ -102,7 +102,7 @@ def report_pdf(body: schemas.PdfRequest, user: sqlite3.Row = Depends(active_user
         review_rows = conn.execute(
             "SELECT re.case_id, re.human_label, re.encrypted_note, u.display_name"
             " FROM review_events re JOIN users u ON u.id = re.reviewer_id"
-            f" WHERE re.case_id IN ({placeholders}) ORDER BY re.created_at",
+            f" WHERE re.case_id IN ({placeholders}) ORDER BY re.created_at, re.rowid",
             [r["id"] for r in rows],
         ).fetchall()
         for review in review_rows:
