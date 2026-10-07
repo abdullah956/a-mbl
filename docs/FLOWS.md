@@ -39,7 +39,7 @@ flowchart TD
     Result -->|safe| Discarded[nothing saved]
     Discarded -->|"Keep for human review anyway" §6.3| Case
     Result -->|caution/high/critical| Case[case/id]
-    Case --> Reveal[deliberate Reveal of masked text]
+    Case --> Reveal[deliberate Reveal of masked or withheld text]
     Case --> Context[edit platform/sender, request review]
     Case --> Review[add human review]
     Case --> Evidence[attach/view encrypted screenshot]
@@ -62,7 +62,8 @@ flowchart TD
     Preview -->|not now| GProfile
     GAlerts[tabs/alerts] -->|focus, foreground, 60s poll, pull| List[content-free alert list]
     List -->|tap| GCase[case/id - access re-checked]
-    GHome[tabs/index: linked-user summary] --> Reports[reports: filters, trend, PDF]
+    GMail[optional email: severity + category, no content - only when SMTP is configured] -.->|open the app| GAlerts
+    GHome[tabs/index: linked-user summary + charts: per week, by weekday, repeat senders] --> Reports[reports: filters, trend, PDF]
 ```
 
 Error states: invalid/expired/consumed code (404 message), non-guardian
@@ -72,7 +73,7 @@ account (403), already linked (409).
 
 ```mermaid
 flowchart TD
-    AHome[tabs/index: org summary] --> AReports[reports: date filters, weekly trend, alias grouping, PDF download/share]
+    AHome[tabs/index: org summary + charts] --> AReports[reports: date filters, weekly trend, alias grouping, PDF download/share]
     ACases[tabs/cases: explicitly shared cases] --> ACase[case/id review]
     AProfile[tabs/profile] --> Members[members: list / add by email / remove]
     Members -->|add non-admin email| Err409[409 - only admin accounts]

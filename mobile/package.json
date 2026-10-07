@@ -1,7 +1,7 @@
 {
   "name": "mobile",
   "main": "expo-router/entry",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "dependencies": {
     "@expo/ui": "~57.0.21",
     "expo": "~57.0.26",
@@ -42,7 +42,9 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "build:apk": "./scripts/build-apk.sh"
+    "build:apk": "./scripts/build-apk.sh",
+    "check:casing": "node scripts/check-casing.mjs",
+    "check": "node scripts/check-casing.mjs && tsc --noEmit"
   },
   "private": true
 }

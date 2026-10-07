@@ -5,7 +5,7 @@
 > guide. For the technical version (files, database, API), see
 > [PROJECT_GUIDE.md](PROJECT_GUIDE.md).
 >
-> **Version described:** a-mbl 0.1 (university prototype), October 2026.
+> **Version described:** a-mbl 0.2.0 (university prototype), October 2026.
 
 ---
 
@@ -52,10 +52,11 @@ received might be cyberbullying.**
   someone they trust.
 - A **parent or guardian** can be linked to a young person's account, and a
   user can choose to **share** a specific case with their **school**.
-- Serious cases create **alerts** inside the app. Alerts never show the
-  message itself.
-- Everyone can produce a **summary report** and a **PDF** with the message
-  text hidden.
+- Serious cases create **alerts** inside the app. If the person running the
+  server has switched it on, linked guardians and schools also get a short
+  **email**. Alerts and emails never show the message itself.
+- Everyone sees simple **charts** on the Home tab and can produce a **summary
+  report** and a **PDF** with the message text hidden.
 
 The app gives **estimates to support a human conversation**, never verdicts
 about a person.
@@ -89,8 +90,10 @@ a-mbl was designed around four ideas:
 
 > **What a-mbl does *not* do:** it does not read your other apps, monitor the
 > phone in the background, connect to social-media accounts, or send text
-> messages, emails or push notifications. It only ever sees what someone
-> deliberately types or scans into it.
+> messages or push notifications. It only ever sees what someone
+> deliberately types or scans into it. (The one exception to "no messages
+> sent" is an optional alert email to guardians and schools, which never
+> contains the message; see [section 13](#13-alerts).)
 
 ---
 
@@ -140,9 +143,11 @@ flowchart LR
         PDF["📄 Report and PDF maker"]
         CLEAN["🧹 Daily clean-up<br/>(deletes expired cases)"]
         VAULT[("🔒 Locked storage<br/>encrypted cases")]
+        MAIL["✉️ Alert emails<br/>(optional, no message text)"]
     end
     APP <-- "internet or Wi-Fi" --> CHECK
     CHECK --> RULES --> VAULT
+    RULES -.-> MAIL
     APP <--> OCR
     APP <--> PDF
     CLEAN --> VAULT
@@ -150,8 +155,8 @@ flowchart LR
 ```
 
 **Why a server, and not everything on the phone?** The screenshot reader, the
-PDF maker and (in future) a trained AI model are heavy tools that run better on
-a computer. Keeping the rules on the server also means **the phone cannot be
+PDF maker and the trained AI model (see [section 18](#18-how-the-ai-works-and-its-limits))
+are heavy tools that run better on a computer. Keeping the rules on the server also means **the phone cannot be
 tricked into showing someone a case they are not allowed to see**: every
 request is checked by the server, every time.
 
@@ -222,7 +227,7 @@ Once signed in, everything lives in five tabs at the bottom of the screen:
 
 | Tab | What it shows |
 | --- | --- |
-| **Home** (Overview for guardians and schools) | A 30-day summary: how many harmful cases, how many reviewed, a breakdown by severity and category, and shortcuts to Analyze and Reports. |
+| **Home** (Overview for guardians and schools) | A 30-day summary: how many harmful cases, how many reviewed, a breakdown by severity and category, and shortcuts to Analyze and Reports. Once there are cases, it also shows three simple charts: **cases per week**, **cases by day of the week**, and **repeat senders** (the sender nicknames typed in most often, top five). |
 | **Analyze** | Where you check a message, by typing it or scanning a screenshot. |
 | **Cases** (Review for schools) | The list of saved cases you are allowed to see, with severity filters. |
 | **Alerts** | The in-app inbox for serious cases. |
@@ -242,14 +247,14 @@ sequenceDiagram
     P->>A: Optional: where it happened, and the sender's nickname
     P->>A: Taps "Analyze"
     A->>S: Sends the text
-    S->>S: Checks the words and phrases
+    S->>S: Checks the message (word lists, plus the<br/>trained model when it is installed)
     S->>S: Decides category, severity, confidence and advice
     alt Looks normal
         S->>S: Throws the text away and keeps only<br/>"a check happened, result: Normal"
         S-->>A: Result: Safe, nothing saved
     else Looks possibly harmful
         S->>S: Locks (encrypts) the text into a case<br/>that deletes itself after 30 days
-        S->>S: If serious and confident: creates alerts
+        S->>S: If serious and confident: creates alerts<br/>(and, if switched on, alert emails)
         S-->>A: Result + link to the saved case
     end
     A-->>P: Shows the result card with advice
@@ -258,7 +263,9 @@ sequenceDiagram
 The two optional fields, **Platform** (for example "ChatApp") and **Sender
 nickname** (for example "anon_17"), are only notes for the person and anyone
 helping them. They are labelled *unverified*: the app cannot know who really
-sent a message, and these notes **never change the result**.
+sent a message, and these notes **never change the result**. The sender
+nicknames are also what the **Repeat senders** chart on Home and the
+"by sender" list in Reports count.
 
 <p align="center">
   <img src="docs/images/guide/07-analyze.png" width="230" alt="Analyze tab with a message typed" />
@@ -432,7 +439,11 @@ Opening a case shows, from top to bottom:
    word is reduced to its first letter (for example `y•• a•• s••• a• i••••`).
    The full text appears only when someone deliberately taps **Reveal full
    content**, so a message is never shown by accident, for example over
-   someone's shoulder.
+   someone's shoulder. Sometimes the trained model (see
+   [section 18](#18-how-the-ai-works-and-its-limits)) flags a message that
+   contains none of the listed words, so there is nothing specific to hide.
+   For those, the hidden view shows *"Content withheld — open the case to
+   view it."* and the text appears only after **Reveal full content**.
 3. **Context and review** (owner only): edit the platform and sender notes,
    and **Request a human review** to signal to the people who can see the case
    that the owner would like a second opinion.
@@ -577,6 +588,24 @@ There are no phone notifications in this version, by design. The Alerts tab
 refreshes when it is opened, when the app comes back to the foreground, every
 minute while it stays open, and when the person pulls down on the list.
 
+### 13.3 Optional alert emails
+
+The person running the a-mbl server can also connect an email account to it.
+When they do, linked guardians and school administrators get a short email
+whenever a case creates an alert for them. Without it, no emails are sent and
+the Alerts tab works exactly the same.
+
+- The email says only that a possible case of a certain kind (for example
+  *threat*) and severity (for example *critical*) involving a named person was
+  flagged, and asks the reader to open the app.
+- It **never contains the message**, and reminds the reader that results are
+  automated estimates.
+- The person who checked the message is not emailed, because they have just
+  seen the result.
+- Each person is emailed **only once per alert**, so the same alert never
+  sends a second email. (If a case is unshared and later shared with the
+  school again, that creates a new alert, and so a new email.)
+
 ---
 
 ## 14. Who can see what
@@ -588,6 +617,7 @@ minute while it stays open, and when the person pulls down on the list.
 | View an attached screenshot | ✅ | ✅ | ✅ (shared cases only) |
 | Add a human review | ✅ | ✅ | ✅ |
 | Receive alerts for serious cases | ✅ | ✅ | ✅ (shared cases only) |
+| Receive optional alert emails (when switched on) | — (they have just seen the result) | ✅ | ✅ (shared cases only) |
 | Edit notes, request a review | ✅ | — | — |
 | Attach a screenshot | ✅ | — | — |
 | Share or unshare with a school | ✅ | — | — |
@@ -652,7 +682,7 @@ flowchart TB
         S1["Normal messages:<br/>discarded immediately"]
         S2["Harmful messages, notes and screenshots:<br/>encrypted when saved"]
         S3["Cases delete themselves<br/>after 30 days"]
-        S4["Alerts and logs never<br/>contain message text"]
+        S4["Alerts, alert emails and logs<br/>never contain message text"]
         S5["Passwords are stored as<br/>one-way scrambles"]
         S6["Every request is checked:<br/>who are you, may you see this?"]
     end
@@ -668,8 +698,9 @@ In more detail:
 - **Automatic expiry.** Every case carries its own deletion date; expired
   cases disappear from every screen immediately and are erased by the daily
   clean-up.
-- **Content-free alerts and logs.** Alerts and the server's activity log
-  record *that* something happened, never *what* the message said.
+- **Content-free alerts and logs.** Alerts, the optional alert emails and the
+  server's activity log record *that* something happened, never *what* the
+  message said.
 - **Deliberate reveal.** Message text is masked on screen and in PDFs until
   someone chooses to reveal it.
 - **Strong sign-in.** Passwords are stored only as salted one-way hashes;
@@ -677,7 +708,7 @@ In more detail:
   sign-in key logs that account out everywhere.
 - **Access is enforced by the server**, not by hiding buttons in the app.
 
-> **Prototype boundary.** a-mbl 0.1 is a university prototype running on a
+> **Prototype boundary.** a-mbl 0.2.0 is a university prototype running on a
 > developer's computer. It has not been security-audited, it is not a
 > production service, and it makes no legal-compliance claims. **Please use
 > made-up messages only** when testing. The app shows this reminder on several
@@ -689,47 +720,78 @@ In more detail:
 
 ### 18.1 What it is today
 
-The message checker in this version is a carefully built **word-and-phrase
-checker** (named `lexicon-0.1.0`), not a trained machine-learning model. It
-contains lists of phrases for each category (threats such as "i will find
-you", harassment such as "nobody likes you", hate-speech patterns, offensive
-words, body-shaming terms) and rules for combining them. For example, a word
-about a group *plus* an attacking word counts as hate speech, and "you" plus
-two insults counts as harassment.
+The message checker in this version has two parts that work together:
 
-It also sees through common tricks people use to dodge filters:
+- A **trained model** (named `tfidf-logreg-0.2.0`). It is a computer program
+  that learned from about 160,000 real online comments that people had
+  already labelled as insulting, threatening, hateful, rude or fine. It picks
+  up the kind of wording that goes with each category, so it can catch a
+  message even when none of the listed words appear: `I will find out where
+  you live` comes out as a **Threat**.
+- A **word-and-phrase checker** (named `lexicon-0.1.0`). It contains lists of
+  phrases for each category (threats such as "i will find you", harassment
+  such as "nobody likes you", hate-speech patterns, offensive words,
+  body-shaming terms) and rules for combining them. For example, a word about
+  a group *plus* an attacking word counts as hate speech, and "you" plus two
+  insults counts as harassment.
+
+The server asks both and keeps **whichever answer is more serious**, so the
+model can only add catches; it can never cancel one the phrase lists found.
+The phrase checker also does two jobs the model cannot: it finds the exact
+words to hide in previews and PDFs, and it recognizes **body shaming**, for
+which no public training data exists.
+
+The trained model is a file on the developer's computer. A computer without
+that file uses the phrase checker on its own. The connection screen shows
+which one is in use (*Model: …*), and every case shows the checker version
+that produced it.
+
+Together they see through common tricks people use to dodge filters:
 
 | Trick | Example | Still caught? |
 | --- | --- | --- |
 | Numbers or symbols for letters | `i will k1ll you!` | ✅ Threat |
 | Stretched letters | `u r such a l0000ser` | ✅ Offensive |
 | Extra spaces between words | `kill     you` | ✅ Threat |
+| A symbol hiding a letter | `k*ll yourself` | ⚠️ Threat, but marked uncertain so a person checks it |
 
-Every result can be traced back to the exact phrases that matched, which is
-also how the masking knows what to hide.
+A disguised spelling makes the checker *more* sure, not less: someone who
+dodges a filter usually knows the word is hurtful.
 
 ### 18.2 Its honest limits
 
-- It only knows the phrases in its lists, so **new slang, sarcasm, inside
-  jokes and context are beyond it**. It can miss harmful messages and can
-  flag harmless ones (for example, friends teasing each other).
-- It works in **English only**.
-- Its confidence numbers are **rules of thumb**, not measured statistics. Its
-  accuracy has **not** been measured on a benchmark, and the project makes no
-  accuracy claims.
+The trained model was tested on about 24,000 comments it had never seen,
+mixed in the same proportions as real life (about nine in ten ordinary).
+The project set four targets before testing and reports all four:
+
+| What was measured | Target | Result |
+| --- | --- | --- |
+| Answers that were right overall | at least 85% | **90%** ✅ |
+| Ordinary comments wrongly flagged (false alarms) | under 10% | **about 5%** ✅ |
+| Real threats that were caught | at least 80% | **about 72%** (roughly 7 in 10) ❌ |
+| Balanced score across all five categories (0 to 1) | at least 0.75 | **0.56** ❌ |
+
+- Two of the four targets are **not met**. The main reasons: threats are rare
+  in the training data (fewer than 500 of the 160,000 comments), and those
+  comments come from Wikipedia discussion pages, not from teenagers' chats.
+- It works in **English only**, and **new slang, sarcasm, inside jokes and
+  context** can still fool it. It can miss harmful messages and can flag
+  harmless ones (for example, friends teasing each other).
+- The phrase checker's confidence numbers are **rules of thumb**, not
+  measured statistics; on a computer without the model file, there is no
+  measured accuracy at all.
 
 That is exactly why the app always uses cautious wording, shows confidence,
 flags uncertain results, keeps the original result next to human reviews,
 and never takes action on anyone's behalf.
 
-### 18.3 What replaces it
+### 18.3 What comes next
 
-The project plan includes a **trained model** built from public, properly
-licensed datasets, with published quality targets (for example at least 85%
-accuracy and fewer than 10% false alarms) that will be reported honestly
-whether or not they are met. The app was built so this new model can be
-swapped in **without changing anything else**: same categories, same screens,
-same privacy rules.
+The plan is a stronger model, trained on messages closer to real teenage
+chats, compared honestly against this one, plus labelled body-shaming
+examples so that tag no longer depends on a word list. The app was built so a
+new model can be swapped in **without changing anything else**: same
+categories, same screens, same privacy rules.
 
 ---
 
@@ -907,7 +969,7 @@ instead.
 
 | Planned | Why it matters |
 | --- | --- |
-| **Trained AI model** with published accuracy results | Better at context and new wording than a phrase list. |
+| **A stronger AI model**, trained on messages closer to teenage chats | Catches more threats and understands context better than today's model (see [section 18](#18-how-the-ai-works-and-its-limits)). |
 | **Hosting on a proper secure server** (instead of a developer's computer) | Lets people use the app anytime, from anywhere, with real security protections. |
 | **App-store builds** (Google Play, Apple App Store) | Easy installation, automatic updates. |
 | **Optional notifications** | Faster alerts for guardians and schools, if wanted. |

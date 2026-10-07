@@ -1,8 +1,9 @@
-# Implementation notes — version 0.1
+# Implementation notes — version 0.2.0
 
 This documents what is actually built, how to run it, and where it deviates
 from [MOBILE_APP_ROADMAP.md](MOBILE_APP_ROADMAP.md) (and why). Nothing here
-claims production readiness, measured accuracy, or legal compliance.
+claims production readiness or legal compliance; the only measured accuracy
+is the trained model's held-out evaluation in [ml/README.md](../ml/README.md).
 
 ## What works end to end
 
@@ -29,13 +30,21 @@ claims production readiness, measured accuracy, or legal compliance.
   confirms OCR is available), case detail with deliberate **Reveal**, human reviews,
   organization sharing with named confirmation, evidence attach/view,
   guardian linking, data export, account deletion.
-- **Tests**: 115 pytest cases (`backend/tests/`) covering auth (including
+- **Classifier**: hybrid — the trained TF-IDF + logistic-regression model
+  (`tfidf-logreg-0.2.0`, loaded from the gitignored
+  `ml/artifacts/model.joblib`; trained and active on the development Mac)
+  merged severity-max with the deterministic lexicon baseline
+  (`lexicon-0.1.0`), which runs alone wherever the artifact is absent.
+- **Tests**: 120 pytest cases (`backend/tests/`) covering auth (including
   token tampering and expired refresh), age gate, link codes, IDOR and
   cross-organization isolation, retention, encryption, alert scoping and
   cleanup on revocation, report/PDF role scoping and masking, OCR validation,
-  and the classifier against `tests/fixtures/labeled_samples.jsonl`
-  (including punctuation, obfuscation, and phantom-match regressions).
-  Mobile is TypeScript-strict and verified to bundle with `expo export`.
+  the classifier against `tests/fixtures/labeled_samples.jsonl`
+  (including punctuation, obfuscation, and phantom-match regressions), and
+  optional email alerts. The suite pins the lexicon baseline
+  (`A_MBL_FORCE_LEXICON=1`) so its assertions stay deterministic.
+  Mobile is TypeScript-strict, lint-clean, passes the import-casing check
+  (`npm run check`), and is verified to bundle with `expo export`.
 
 ## How to run
 
@@ -53,7 +62,7 @@ python -m backend.scripts.seed_demo       # synthetic demo accounts (see below)
 Mobile: `cd mobile && npm install && npx expo start`, open in Expo Go, and on
 the first screen enter the address `run.sh` printed (e.g.
 `http://192.168.1.20:8000`). For an installable Android build,
-`npm run build:apk` writes `dist/a-mbl-0.1.0.apk` (see
+`npm run build:apk` writes `dist/a-mbl-0.2.0.apk` (see
 [DEVICE_TESTING.md](DEVICE_TESTING.md) §2).
 
 School admin accounts (invitation-only, §5.3):
@@ -65,9 +74,9 @@ Demo accounts after seeding (password `demo-pass-123`): `demo.user@a-mbl.test`,
 
 ## Deviations from the roadmap, with reasons
 
-| Roadmap                                           | v0.1 choice                                                                  | Why                                                                                                                                             |
+| Roadmap                                           | Current choice                                                               | Why                                                                                                                                             |
 | ------------------------------------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Trained TF-IDF + Logistic Regression model (§12) | Deterministic lexicon baseline`lexicon-0.1.0` behind the same interface    | No dataset work has happened yet; a fake "trained" model would violate §18.5 honesty rules. The swap-in path is documented in`ml/README.md`. |
+| Trained TF-IDF + Logistic Regression model (§12) | Hybrid: the trained `tfidf-logreg-0.2.0` model merged severity-max with the lexicon baseline `lexicon-0.1.0`, which runs alone when `ml/artifacts/model.joblib` is absent | The model is built (`ml/train.py`) and measured, but the ~15 MB artifact stays out of Git, so every machine needs it copied in or retrained. The lexicon still supplies the matched terms used for masking and the Body Shaming tag, which no public dataset labels. |
 | Argon2 password hashing (§16.3)                  | PBKDF2-HMAC-SHA256 (210k iterations, stdlib)                                 | Zero native dependencies for the local prototype; interchangeable later because hashes are versioned strings.                                   |
 | SQLAlchemy 2 + Alembic (§9.2)                    | Plain`sqlite3` with `CREATE TABLE IF NOT EXISTS`                         | One less layer for a single-file local DB; the schema lives in one place (`backend/app/db.py`).                                               |
 | TanStack Query, React Hook Form, Zod (§9.1)      | Plain React state + a small typed fetch wrapper                              | Fewer moving parts for the first working version; screens are small enough to stay readable.                                                    |
@@ -75,7 +84,7 @@ Demo accounts after seeding (password `demo-pass-123`): `demo.user@a-mbl.test`,
 | Role-specific tab sets (§8.2–8.4)               | One five-tab layout whose titles and content adapt per role                  | Same information scope, less navigation code; backend scoping is what enforces access anyway (§5.4).                                           |
 | ~~PDF download inside the app (§15.2)~~ resolved 2026-07-12 | The Reports screen downloads and shares the masked PDF via `expo-file-system` + `expo-sharing` | Formerly deferred; the packages the roadmap prescribed are now installed and wired.                                                             |
 | Tesseract OCR always on (§13)                    | Feature flag:`/v1/health.ocrReady`; the app shows the scan flow only after the server confirms it is ready | Tesseract is a system binary that may not be installed (`conda install -n a-mbl -c conda-forge tesseract`). Upload validation still runs and is tested either way.     |
-| Jest + React Native Testing Library (§9.1, §18.1) | No mobile test runner yet; the gates are strict TypeScript (`npx tsc --noEmit`), `expo export`, and the backend suite | The screens are thin wrappers over the API, which the 115 pytest cases exercise; a Jest/RNTL harness is still planned before the trained-model work. |
+| Jest + React Native Testing Library (§9.1, §18.1) | No mobile test runner yet; the gates are strict TypeScript (`npx tsc --noEmit`), `expo export`, and the backend suite | The screens are thin wrappers over the API, which the 120 pytest cases exercise; a Jest/RNTL harness is still planned. |
 
 ## Feature completions on 2026-07-12
 
@@ -137,16 +146,18 @@ Closed every remaining roadmap gap that does not require the trained model:
   with the §12 trained model).
 - **Schema**: `flagged_cases.review_requested`,
   `organization_memberships.status`, and the §11 `model_versions` columns
-  (`artifact_checksum`, `label_map_json`, `metrics_json` — NULL until a trained
-  model exists) added via idempotent ALTERs at connect time; existing dev
+  (`artifact_checksum`, `label_map_json`, `metrics_json` — still NULL: the
+  trained model's registration records only version, kind and thresholds) added via idempotent ALTERs at connect time; existing dev
   databases migrate automatically, no reset needed.
 
 ### What remains open
 
-Blocked on multi-week dataset/model work (a fake trained model would violate
-the §18.5 honesty rules): the §12 trained TF-IDF model, its §12.3 evaluation
-gates / metrics / model card, and the §18.4 recorded device-latency runs that
-§17 says must use the final artifacts.
+The §12 trained TF-IDF model now exists and its §12.3 gates are measured
+(see "Changes on 2026-10-07" below): accuracy and false-positive rate pass,
+threat recall and macro F1 do not. Still open: closing those two gates, a
+model card, filling the `model_versions` checksum / label-map / metrics
+columns, and the §18.4 recorded device-latency runs that §17 says must use
+the final artifacts.
 
 Separately, the accepted substitutions in the deviations table above are still
 roadmap deltas, not completed requirements — role-specific tab sets (§8.2–8.4),
@@ -300,18 +311,85 @@ because the first one's text was already discarded.
 - **Docs**: new non-technical [CLIENT_GUIDE.md](../CLIENT_GUIDE.md) with
   diagrams, emulator screenshots, and a test script; the technical
   [PROJECT_GUIDE.md](../PROJECT_GUIDE.md) is now tracked in Git; every doc
-  updated for the APK route, conda-based tools, and the 115-test suite.
+  updated for the APK route, conda-based tools, and the 115-test suite of
+  that day.
+
+## Changes on 2026-10-07 (version 0.2.0)
+
+Merged `feat/ml-dashboard-alerts`, trained the model on the development Mac,
+and bumped the app to 0.2.0 (`app.json` `version` 0.2.0, Android
+`versionCode` 2; the APK is `dist/a-mbl-0.2.0.apk`).
+
+- **Hybrid classifier** (`backend/app/classifier.py`, §12): at import the
+  backend loads `ml/artifacts/model.joblib` when present
+  (`A_MBL_MODEL_PATH` overrides the path, `A_MBL_FORCE_LEXICON=1` skips it).
+  The model's per-class thresholds are checked worst class first, then the
+  verdict merges severity-max with the lexicon (more severe label wins; on a
+  tie the higher confidence). The lexicon still supplies `matched_terms` and
+  the Body Shaming tag. A broken artifact is logged and the lexicon is used.
+  `register_model_version` records the class thresholds alongside the policy
+  thresholds. Lexicon confidence gains +0.10 when a match only appears after
+  de-obfuscation (`l0ser` scores above `loser`).
+- **Preview withholding** (§15.2): when the model flags a message but the
+  lexicon found no literal term to censor, the case preview reads "Content
+  withheld — open the case to view it." (`masked_preview` in
+  `routers/cases.py`) rather than risk leaking content.
+- **Training pipeline** (`ml/train.py`, `ml/requirements.txt`): Jigsaw labels
+  collapsed by severity, stratified 70/15/15 split, rebalanced training split
+  only, word + character TF-IDF, class-weighted logistic regression,
+  validation-tuned thresholds. Training data came from the Hugging Face mirror
+  of Jigsaw `train.csv` (no account needed; Kaggle works too). Measured on the
+  23,936-comment test set: accuracy 0.903 and false-positive rate 0.053 pass
+  their gates; threat recall 0.718 and macro F1 0.558 fail theirs. Tuned
+  thresholds: threat 0.10, hate speech 0.45, harassment 0.40, offensive 0.50.
+  `backend/requirements.txt` gained `scikit-learn` and `joblib` (needed only
+  to load the artifact).
+- **Email alerts** (FR5, `backend/app/emailer.py`): optional, off unless
+  `A_MBL_SMTP_HOST` and `A_MBL_SMTP_FROM` are set. Only non-owner recipients
+  of a newly inserted alert row are emailed, on a daemon thread, with
+  severity, category and the subject's display name — never message content.
+  A mail failure is logged and never fails the request.
+- **Dashboard charts**: `GET /v1/reports/summary` adds `byWeekday` (Monday to
+  Sunday counts) and `topSenders` (top 5 user-entered aliases, viewer-scoped);
+  the Home tab draws cases per week, cases by day of week and repeat senders
+  with View-based charts (`mobile/src/components/charts.tsx`, no chart
+  library).
+- **Windows support**: `backend/run.ps1` (PowerShell equivalent of `run.sh`,
+  prefers `.venv`, warns when the "a-mbl API" firewall rule is missing),
+  Tesseract probing of the default Windows install folders in `ocr.py`, and a
+  `.gitattributes` that normalizes line endings. The connect screen's
+  troubleshooting text names the Windows "a-mbl API" firewall rule and
+  says to allow Python on macOS.
+- **Import casing check**: `mobile/scripts/check-casing.mjs`
+  (`npm run check:casing`; `npm run check` also runs `tsc --noEmit`) fails on
+  any local import whose case differs from the file on disk.
+- **Uploads**: screenshot uploads keep the `FormData` + `expo-file-system`
+  `File` path from 2026-10-05 (`screenshotFormData` in `lib/images.ts`).
+- **Tests**: 120 (new: email alerts, obfuscation confidence, summary
+  `topSenders` / `byWeekday`); 119 pass and 1 is skipped with Tesseract
+  installed. Mobile: `tsc` 0 errors, lint 0 problems, casing check passes.
+- **Docs**: new [REPORT_RECONCILIATION.md](REPORT_RECONCILIATION.md) (proposal
+  vs. build, wording for the report); every guide updated for the hybrid
+  classifier, the measured results, email alerts and version 0.2.0.
 
 ## Known limitations
 
-- The lexicon classifier misses anything outside its word lists and has no
-  measured accuracy; treat every result as the uncertain estimate the UI says
-  it is.
+- Classification is a hybrid: the trained TF-IDF pipeline
+  (`tfidf-logreg-0.2.0`, measured on the development Mac — accuracy 0.903,
+  false-positive rate 0.053, threat recall 0.718, macro F1 0.558 on held-out
+  Jigsaw data; see `ml/artifacts/metrics.json`) merged severity-max with the lexicon baseline,
+  which still supplies masking terms and the Body Shaming tag. Without
+  `ml/artifacts/model.joblib` the API falls back to the lexicon alone. Either
+  way, results remain uncertain estimates and low-confidence detections are
+  flagged for human review.
 - Local HTTP on a shared Wi-Fi network, or a temporary public quick tunnel for
   remote testers; synthetic content only (§16.4).
 - In-app alerts refresh on tab focus, on returning to the foreground, via a
   60-second poll while the inbox is open, and on pull-to-refresh; there are
-  no push notifications by design (§4.2).
+  no push notifications by design (§4.2). Email alerts (FR5) are optional
+  and off by default: sent only to non-owner recipients of a newly created
+  alert row, only when the `A_MBL_SMTP_*` variables are set, and never
+  containing message content.
 - Evidence is downloaded on demand through the API client and held in memory
   while the case is open; very large screenshots take a moment to appear (the
   upload side caps them at 2000 px).

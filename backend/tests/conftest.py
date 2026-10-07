@@ -2,12 +2,22 @@
 database, key files, evidence folder) and a fresh app instance."""
 
 import io
+import os
 import sys
 from contextlib import closing
 from datetime import date
 from pathlib import Path
 
 import pytest
+
+# Pin the suite to the deterministic lexicon baseline: these tests assert its
+# exact labels and confidences, and a fresh clone has no ml/artifacts anyway.
+os.environ["A_MBL_FORCE_LEXICON"] = "1"
+
+# Never let a developer machine's real SMTP settings leak into the suite.
+for _key in ("A_MBL_SMTP_HOST", "A_MBL_SMTP_FROM", "A_MBL_SMTP_USER",
+             "A_MBL_SMTP_PASSWORD", "A_MBL_SMTP_PORT", "A_MBL_SMTP_STARTTLS"):
+    os.environ.pop(_key, None)
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:

@@ -12,12 +12,13 @@ npx expo start
 
 Scan the QR code with **Expo Go** (Android or iPhone). The phone and the Mac
 must be on the same Wi-Fi. On first launch the app asks for the server
-address — start the backend with `../backend/run.sh`, which prints it.
+address — start the backend with `../backend/run.sh` (Windows PowerShell:
+`..\backend\run.ps1`), which prints it.
 
 ## Build an installable Android APK
 
 ```bash
-npm run build:apk     # → ../dist/a-mbl-<version>.apk
+npm run build:apk     # → ../dist/a-mbl-<version>.apk (currently a-mbl-0.2.0.apk)
 ```
 
 `scripts/build-apk.sh` regenerates `android/` from `app.json` with
@@ -25,7 +26,8 @@ npm run build:apk     # → ../dist/a-mbl-<version>.apk
 `assembleRelease` for arm64-v8a and armeabi-v7a. It needs JDK 17 in the
 `a-mbl` conda env and the Android SDK; see
 [../docs/DEVICE_TESTING.md](../docs/DEVICE_TESTING.md) §2 for sending the APK
-to a tester.
+to a tester. The version comes from `app.json` (`version` 0.2.0, Android
+`versionCode` 2); bump both before sending a new build.
 
 ## Structure
 
@@ -36,20 +38,24 @@ src/
 │   ├── connect.tsx       # editable server address + /v1/health check
 │   ├── (auth)/           # welcome, age screen, register, login
 │   ├── pending.tsx       # 13–17 guardian-approval waiting room
-│   ├── (tabs)/           # Home, Analyze, Cases, Alerts, Profile
+│   ├── (tabs)/           # Home (summary + charts), Analyze, Cases, Alerts, Profile
 │   ├── case/[id].tsx     # case detail: reveal, review, share, evidence
 │   ├── reports.tsx       # summaries, weekly trend, masked PDF
 │   └── members.tsx       # school administrators' member list
-├── components/ui.tsx     # small shared UI kit (48pt targets, a11y labels)
+├── components/
+│   ├── ui.tsx            # small shared UI kit (48pt targets, a11y labels)
+│   └── charts.tsx        # View-based Home dashboard charts (no chart library)
 └── lib/                  # typed API client, auth context, theme, types, image normalization
 assets/images/            # app icon, adaptive icon layers, splash, favicon
 scripts/build-apk.sh      # one-command release APK build
+scripts/check-casing.mjs  # fails on a local import whose case differs from the file name
 ```
 
 ## Checks
 
 ```bash
-npx tsc --noEmit     # strict typecheck
+npm run check        # import-casing check (scripts/check-casing.mjs) + strict typecheck (tsc --noEmit)
+npm run check:casing # the casing check alone
 npm run lint         # ESLint (eslint-config-expo)
 npx expo-doctor      # dependency / config health
 npx expo export      # verify the bundle builds

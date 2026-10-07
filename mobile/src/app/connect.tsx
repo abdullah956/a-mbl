@@ -68,7 +68,8 @@ export default function Connect() {
             Common fixes: confirm the server is still running, copy the address
             exactly as you received it, and for an http:// address make sure the
             phone and the server share one Wi-Fi network (port 8000) and the
-            server’s firewall allows incoming connections.
+            server’s firewall allows incoming connections (Windows: the
+            &quot;a-mbl API&quot; rule; macOS: allow Python).
           </Body>
         </Card>
       ) : null}

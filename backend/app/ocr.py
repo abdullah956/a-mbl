@@ -8,7 +8,9 @@ nothing is written to disk by this module.
 """
 
 import io
+import os
 import shutil
+from pathlib import Path
 from statistics import mean
 
 from PIL import Image, ImageOps
@@ -30,14 +32,33 @@ JPEG_MAGIC = b"\xff\xd8\xff"
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
+def _tesseract_cmd() -> str | None:
+    found = shutil.which("tesseract")
+    if found:
+        return found
+    # The Windows installers (UB Mannheim) do not add tesseract to PATH, so
+    # also probe their default install locations.
+    candidates = [
+        Path(os.environ.get("LOCALAPPDATA", r"C:\nonexistent")) / "Programs" / "Tesseract-OCR" / "tesseract.exe",
+        Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Tesseract-OCR" / "tesseract.exe",
+        Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Tesseract-OCR" / "tesseract.exe",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
 def available() -> bool:
-    if shutil.which("tesseract") is None:
+    cmd = _tesseract_cmd()
+    if cmd is None:
         return False
     try:
-        import pytesseract  # noqa: F401
-        return True
+        import pytesseract
     except ImportError:
         return False
+    pytesseract.pytesseract.tesseract_cmd = cmd
+    return True
 
 
 def validate_image(data: bytes) -> str:
