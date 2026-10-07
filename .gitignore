@@ -220,6 +220,7 @@ __marimo__/
 # --- a-mbl project ---
 # Coursework documents (slides, report, photos) kept out of the code repo
 /coursework/
+/report/
 
 # Local data: SQLite database, key files, encrypted evidence. Never commit.
 backend/data/
