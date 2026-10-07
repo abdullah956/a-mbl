@@ -12,7 +12,7 @@ repository — nothing is aspirational.
 | Front end | HTML5, CSS3, JavaScript, Bootstrap | **React Native + Expo (TypeScript)** — a native mobile app for Android and iOS from one codebase | The product analyzes private chat content; a phone app is where that content lives. One codebase still covers both platforms. |
 | Backend | Flask or Django or Node.js | **FastAPI (Python)** | Same Python ecosystem the proposal assumed; FastAPI adds typed request validation and generated API docs. |
 | Database | MySQL or MongoDB | **SQLite + Fernet-encrypted evidence files** | Zero-setup local prototype by design; case text is encrypted at rest, which MySQL alone would not provide. |
-| AI/ML | TensorFlow or PyTorch, NLTK, Scikit-learn | **scikit-learn** (TF-IDF + calibratable logistic regression) hybridized with a lexicon | Scikit-learn was already on the proposal's list. Deep-learning frameworks remain future work (see §5). |
+| AI/ML | TensorFlow or PyTorch, NLTK, Scikit-learn | **scikit-learn** (TF-IDF + class-weighted logistic regression) hybridized with a lexicon | Scikit-learn was already on the proposal's list. Deep-learning frameworks remain future work (see §5). |
 | OCR | Tesseract | **Tesseract** | Matches. |
 | Charts | Chart.js | **Custom React Native chart components** | Chart.js is browser-only; the dashboard is native mobile. |
 | Passwords | bcrypt (NFR2) | **PBKDF2-HMAC-SHA256, per-user salt** | Same goal (slow, salted hashing); PBKDF2 is in the Python standard library. The report should name the actual algorithm. |
@@ -43,7 +43,7 @@ reasons in the repository."*
 - **Security:** passwords PBKDF2-HMAC-SHA256 (salted); case text and evidence encrypted at rest (Fernet). Transport on the local demo network is HTTP; the report should state this as a documented prototype limitation, with HTTPS arriving only with real hosting (future work). No production or legal-compliance claim is made; GDPR/COPPA-aligned *features* exist: guardian consent for minors, minimal retention, full deletion.
 - **Performance:** text analysis returns in well under the required 2 s locally (typically tens of milliseconds); OCR typically under 5 s for phone screenshots.
 - **Accuracy:** see §4 — this is the section that must be rewritten honestly.
-- **Reliability:** "99.9% uptime" is not meaningful for a local prototype. Suggested replacement: "verified by an automated suite of 92 backend tests covering auth, classification, policy, alerts, retention, privacy, reports, and OCR."
+- **Reliability:** "99.9% uptime" is not meaningful for a local prototype. Suggested replacement: "verified by an automated suite of 120 backend tests covering auth, classification, policy, alerts (in-app and email), retention, privacy, reports, and OCR."
 - **Responsiveness:** the proposal said "mobile, tablet and desktop browsers"; the delivered client is a native mobile app (Android now, iOS-capable from the same code). Update the wording.
 - **Privacy:** met and stricter than proposed — Normal text is discarded immediately and never stored; harmful cases expire after **30 days** (the report's §3.7 said one year; 30 days is the implemented, stricter value).
 
@@ -53,43 +53,50 @@ The proposal committed to "at least 85% accuracy with a false positive rate
 below 10%". Paste-ready findings:
 
 > **Dataset.** The classifier was trained on the Jigsaw Toxic Comment dataset
-> (159,571 human-annotated comments). Its six binary labels were collapsed to
-> the project's five classes by severity (threat > identity hate > insult >
-> toxic/obscene > normal). The data is 89.8% Normal; Threat has only 478
+> (159,571 human-annotated comments; the `train.csv` used came from its
+> Hugging Face mirror, CC-BY-SA-3.0, identical to the Kaggle file). Its six
+> binary labels were collapsed to the project's five classes by severity
+> (threat > identity hate > insult > toxic/obscene > normal). The data is 89.8% Normal; Threat has only 478
 > examples.
 >
 > **Headline results** (held-out test set of 23,936 comments at the real class
-> distribution): **accuracy 90.6%** (target ≥ 85% — met) and **false-positive
-> rate 4.8%** (target < 10% — met). However, the evaluation showed that
+> distribution): **accuracy 90.3%** (target ≥ 85% — met) and **false-positive
+> rate 5.3%** (target < 10% — met). However, the evaluation showed that
 > accuracy is a misleading headline metric on this data: a model that labels
 > everything Normal scores 90% while detecting nothing. The evaluation
-> therefore also reports **macro F1 = 0.57** and **threat recall = 0.66**,
+> therefore also reports **macro F1 = 0.56** and **threat recall = 0.72**,
 > which fall short of internal targets (0.75 and 0.80) and are presented as
 > honest limitations driven mainly by class scarcity (478 threat examples) and
 > domain mismatch (Wikipedia discussion comments vs. teen chat messages).
 >
-> **Method.** A naive model reached 93.4% accuracy but caught only 37% of
-> threats. Two corrections were applied: the Normal class was downsampled in
-> the training split only (test data keeps the real distribution), and
-> per-class decision thresholds were tuned on a validation split — the Threat
-> class deliberately receives a low threshold (0.15) because a missed threat
-> costs more than a false alarm. Threat recall rose from 0.37 to 0.66 while
-> the false-positive rate stayed within budget.
+> **Method.** Two corrections keep the model from simply answering Normal:
+> the Normal class was downsampled in the training split only (test data
+> keeps the real distribution), and per-class decision thresholds were tuned
+> on a validation split — the Threat class deliberately receives a low
+> threshold (0.10) because a missed threat costs more than a false alarm.
+> With them, the model catches 72% of test-set threats (51 of 71) while the
+> false-positive rate stays within budget.
 >
 > **Hybrid design.** The deployed classifier merges two detectors and keeps
 > whichever verdict is more severe: the trained model (catches implicit
 > phrasing such as "I will find out where you live", and obfuscations like
-> "k*ll") and a curated lexicon (catches explicit phrases the model misses,
-> supplies the matched terms used to censor previews, and provides the Body
-> Shaming tag, for which no public dataset exists). Deliberately obfuscated
+> "k*ll" — the latter at low confidence, so it is routed to human review) and
+> a curated lexicon (catches explicit phrases the model misses, supplies the
+> matched terms used to censor previews, and provides the Body Shaming tag,
+> for which no public dataset exists). Deliberately obfuscated
 > spellings ("l0ser") *raise* confidence, since evading a filter is itself
 > evidence of intent. Low-confidence detections are flagged "needs review" —
 > the human-in-the-loop requirement from the proposal's ethics section.
 
 Figures for the report: `ml/artifacts/confusion_matrix.png` (test-set confusion
-matrix), `ml/artifacts/metrics.json` (all numbers, including per-class
-precision/recall), `ml/artifacts/metrics_naive_baseline.json` (the before
-side of the before/after comparison).
+matrix) and `ml/artifacts/metrics.json` (all numbers, including per-class
+precision/recall). Both are produced by `python ml/train.py` on the
+development Mac and are gitignored, like the model itself. An earlier run on
+another machine recorded slightly different figures (accuracy 90.6%, FPR
+4.8%, threat recall 0.66, macro F1 0.57) because of library versions; quote
+the numbers above, which match the artifact the backend loads. No naive
+baseline run is stored here, so do not quote a before/after comparison from
+these files.
 
 ## 5. Scope statement (fixes the "monitors social media" framing)
 
@@ -111,7 +118,7 @@ and depending on — any specific social network's API."*
 - Objective 4's "automated auditory alarm" → "automated alerts (in-app, plus optional email to guardians/school officials)".
 - §3.7 "flagged content removed after a year" → "harmful cases expire after 30 days; users can delete sooner".
 - Anywhere "bcrypt" appears → "PBKDF2-HMAC-SHA256 (salted)".
-- Comparison table row "Accuracy: Target 85%+" → "90.6% accuracy / 4.8% FPR (measured); macro F1 0.57 reported as limitation".
+- Comparison table row "Accuracy: Target 85%+" → "90.3% accuracy / 5.3% FPR (measured); macro F1 0.56 reported as limitation".
 
 ## 7. Future work (honest, one paragraph)
 

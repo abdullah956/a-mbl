@@ -11,7 +11,8 @@ Three situations, three setups:
    tunnel, EAS Update, or TestFlight.
 
 In every case the phone needs two things: **the app** and **a reachable
-backend**. The backend always runs on your Mac.
+backend**. This guide runs the backend on your Mac (a Windows PC also works
+with `backend\run.ps1`; see [HOW_TO_RUN.md](HOW_TO_RUN.md) §2).
 
 ## 0. One-time prerequisites on the Mac
 
@@ -25,9 +26,12 @@ backend**. The backend always runs on your Mac.
 | Android SDK (APK builds only) | `ls ~/Library/Android/sdk` | Android Studio installs it |
 | cloudflared (remote sessions only) | `conda run -n a-mbl cloudflared --version` | see §2.3 |
 
-(On this Mac, as of 2026-10-05, all of these are installed: Node v26, env
-`a-mbl` with Tesseract 5.5, OpenJDK 17 and cloudflared, and the Android SDK
-under `~/Library/Android/sdk`.)
+(On this Mac, as of 2026-10-07, all of these are installed: Node v26, env
+`a-mbl` with Tesseract 5.5, OpenJDK 17, cloudflared, and scikit-learn +
+joblib (needed only to load a trained model), and the Android SDK under
+`~/Library/Android/sdk`. The model is trained on this Mac —
+`ml/artifacts/model.joblib` is present — so the backend here classifies with
+the hybrid `tfidf-logreg-0.2.0`.)
 
 ## 1. Your own phone in Expo Go (same Wi-Fi)
 
@@ -69,7 +73,7 @@ npm run build:apk          # = ./scripts/build-apk.sh
 
 The script regenerates the native `android/` project from `app.json` (it is
 never committed), builds a release APK for real phones (64-bit and 32-bit
-ARM), and writes **`dist/a-mbl-0.1.0.apk`** (about 55 MB) at the repository
+ARM), and writes **`dist/a-mbl-0.2.0.apk`** (about 55 MB) at the repository
 root (`dist/` is gitignored). The first build downloads Gradle, the NDK and
 CMake (about 30 minutes on this Mac, mostly downloading); later builds take
 2–3 minutes.
@@ -87,11 +91,12 @@ About this build:
   `http://<mac-ip>:8000` on the same Wi-Fi as well as with https tunnels.
 - When you send an updated APK, bump `expo.version` and
   `expo.android.versionCode` in `mobile/app.json` first, so testers can tell
-  versions apart.
+  versions apart (currently 0.2.0 / versionCode 2; the first build sent out
+  was 0.1.0 / 1). The file name follows `expo.version`.
 
 ### 2.2 Send it
 
-Share `dist/a-mbl-0.1.0.apk` through Google Drive, WhatsApp, Telegram or a
+Share `dist/a-mbl-0.2.0.apk` through Google Drive, WhatsApp, Telegram or a
 USB cable (some email providers block `.apk` attachments). The tester-facing
 install steps (allow installs from this source, Play Protect's "Install
 anyway") are written out in [CLIENT_GUIDE.md](../CLIENT_GUIDE.md) §19, which
@@ -136,7 +141,18 @@ Send the tester:
    [CLIENT_GUIDE.md](../CLIENT_GUIDE.md) §19.
 
 She opens a-mbl, pastes the address on **Connect to the a-mbl server**, taps
-**Check connection**, then **Continue**.
+**Check connection**, then **Continue**. The **Connected ✓** card shows
+`Model: …`, which tells you which classifier the session uses:
+`tfidf-logreg-0.2.0` when `ml/artifacts/model.joblib` is on the Mac (as it is
+on the development Mac), `lexicon-0.1.0` otherwise
+([HOW_TO_RUN.md](HOW_TO_RUN.md) §2, "Trained classifier").
+
+Email alerts stay off unless the `A_MBL_SMTP_*` variables are set in the
+shell that runs `run.sh` (HOW_TO_RUN.md §2, "Email alerts"). The demo
+accounts use `@a-mbl.test` addresses, which cannot receive mail. To show an
+alert email, register a guardian account with a real inbox, link it to the
+user who will submit the message, then submit an alert-raising message as
+that user (for example `i will hurt you`).
 
 The quick-tunnel address changes every time cloudflared restarts. If you
 restart it, send the new address; she can change it later under
@@ -222,7 +238,7 @@ An Android emulator from the SDK reaches the Mac's backend at
 ```bash
 ~/Library/Android/sdk/emulator/emulator -list-avds          # pick an AVD
 ~/Library/Android/sdk/emulator/emulator -avd <name> &
-~/Library/Android/sdk/platform-tools/adb install -r dist/a-mbl-0.1.0.apk
+~/Library/Android/sdk/platform-tools/adb install -r dist/a-mbl-0.2.0.apk
 ```
 
 Then open a-mbl in the emulator and enter `10.0.2.2:8000` on the connect
