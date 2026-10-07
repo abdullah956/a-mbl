@@ -16,6 +16,22 @@ def test_summary_counts_by_label_and_severity(client, register, analyze, auth):
     assert summary["weekly"] and sum(w["count"] for w in summary["weekly"]) == 3
 
 
+def test_summary_top_senders_and_weekday(client, register, analyze, auth):
+    session = register("senders@test.io")
+    analyze(session, "i will kill you", senderAlias="bully01", platformName="Instagram")
+    analyze(session, "nobody likes you, loser", senderAlias="bully01")
+    analyze(session, "you are an idiot", senderAlias="someone else")
+    analyze(session, "i will kill you")  # no alias -> not counted as a sender
+
+    summary = client.get("/v1/reports/summary", headers=auth(session)).json()
+    assert summary["topSenders"] == [
+        {"alias": "bully01", "count": 2},
+        {"alias": "someone else", "count": 1},
+    ]
+    assert len(summary["byWeekday"]) == 7
+    assert sum(summary["byWeekday"]) == 4
+
+
 def test_summary_respects_role_scope(client, make_linked_pair, register, analyze, auth):
     teen, guardian = make_linked_pair()
     stranger = register("stranger@test.io")

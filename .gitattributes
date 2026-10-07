@@ -1,0 +1,26 @@
+# Normalize line endings so a Windows and a macOS checkout agree.
+# Text files are stored LF in Git and checked out native to each OS.
+* text=auto eol=lf
+
+# Scripts that must stay LF or they break their interpreter.
+*.sh text eol=lf
+
+# Scripts that must stay CRLF for Windows.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files Git must never touch.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
+*.db binary
+*.sqlite binary
+*.sqlite3 binary

@@ -48,6 +48,25 @@ uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
 Sanity check from the Mac: open <http://127.0.0.1:8000/v1/health> — you should
 see `"status":"ok"`. Interactive API docs are at <http://127.0.0.1:8000/docs>.
 
+### Email alerts (optional)
+
+When an alert-eligible case is flagged, the API emails the linked guardians or
+school administrators — but only if an SMTP mailbox is configured before the
+backend starts. With nothing configured, nothing is sent and in-app alerts
+still work. Emails carry the severity, the category, and the involved person's
+display name — never any message content.
+
+```bash
+export A_MBL_SMTP_HOST=smtp.gmail.com      # required
+export A_MBL_SMTP_FROM=you@example.com     # required
+export A_MBL_SMTP_USER=you@example.com     # if the server needs a login
+export A_MBL_SMTP_PASSWORD="app password"  # for Gmail: an app password
+# A_MBL_SMTP_PORT defaults to 587 with STARTTLS on
+```
+
+On Windows PowerShell use `$env:A_MBL_SMTP_HOST = "smtp.gmail.com"` (and so on)
+in the same window that runs `backend\run.ps1`.
+
 ## 3. Start the mobile app
 
 ```bash

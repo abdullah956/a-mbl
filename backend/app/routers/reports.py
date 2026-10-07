@@ -44,6 +44,8 @@ def _summary_data(conn: sqlite3.Connection, user: sqlite3.Row,
     by_severity: dict[str, int] = {}
     by_sender: dict[str, int] = {}
     weekly: dict[str, int] = {}
+    by_weekday = [0] * 7  # Monday .. Sunday, from the submission timestamp
+    senders: dict[str, int] = {}
     reviewed = 0
     for row in rows:
         by_label[row["primary_label"]] = by_label.get(row["primary_label"], 0) + 1
@@ -57,6 +59,17 @@ def _summary_data(conn: sqlite3.Connection, user: sqlite3.Row,
         day = date.fromisoformat(row["created_at"][:10])
         week_start = (day - timedelta(days=day.weekday())).isoformat()
         weekly[week_start] = weekly.get(week_start, 0) + 1
+        by_weekday[day.weekday()] += 1
+        alias = (row["sender_alias"] or "").strip()
+        if alias:
+            senders[alias] = senders.get(alias, 0) + 1
+
+    # "Frequent senders" is the user-entered alias, counted within this
+    # viewer's scope only — an aid for the human conversation, not a verdict.
+    top_senders = [
+        {"alias": alias, "count": count}
+        for alias, count in sorted(senders.items(), key=lambda item: (-item[1], item[0]))[:5]
+    ]
 
     return {
         "total": len(rows),
@@ -66,6 +79,8 @@ def _summary_data(conn: sqlite3.Connection, user: sqlite3.Row,
         "reviewed": reviewed,
         "pending": len(rows) - reviewed,
         "weekly": [{"weekStart": k, "count": weekly[k]} for k in sorted(weekly)],
+        "byWeekday": by_weekday,
+        "topSenders": top_senders,
     }
 
 

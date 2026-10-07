@@ -1,34 +1,55 @@
 # ml/ — classification model workspace
 
-## What exists today
+## What exists
 
-Version 0.1 ships a deterministic **lexicon baseline** (`lexicon-0.1.0`) that
-lives in [`backend/app/classifier.py`](../backend/app/classifier.py) with word
-lists in [`backend/app/lexicon.py`](../backend/app/lexicon.py). It returns the
-five primary labels, the Body Shaming tag, a heuristic confidence, and the
-matched terms used for masking. It is CPU-free, explainable, and covered by
-[`backend/tests/test_classifier.py`](../backend/tests/test_classifier.py)
-against the shared fixtures in
-[`tests/fixtures/labeled_samples.jsonl`](../tests/fixtures/labeled_samples.jsonl).
+The backend ships a **hybrid classifier**. A trained TF-IDF pipeline
+(`tfidf-logreg-0.2.0`, word + character n-grams, class-weighted logistic
+regression, per-class decision thresholds) decides the primary label and
+confidence; the deterministic lexicon baseline in
+[`backend/app/classifier.py`](../backend/app/classifier.py) remains as a
+safety net and still owns two jobs the model cannot do: the matched terms used
+to censor previews/PDFs, and the Body Shaming tag (no public dataset labels
+it). Verdicts merge severity-max, so a lexicon catch is never downgraded.
 
-This is an honest placeholder, not a trained model. Its accuracy has **not**
-been measured on a benchmark dataset and no such claim is made anywhere.
+Without `ml/artifacts/model.joblib` on disk (fresh clone — artifacts stay out
+of Git), the API falls back to the lexicon baseline automatically, and the
+test suite pins that baseline via `A_MBL_FORCE_LEXICON=1` so its assertions
+stay deterministic.
 
-## What replaces it (roadmap §12, weeks 3–4)
+## Measured results (held-out test set, real class distribution)
 
-1. **Data preparation** (`ml/data/`, kept out of Git): public datasets with
-   clear licenses, a dataset card per source, label mapping to the five
-   classes, manual review for Harassment and Body Shaming, deduplication, and
-   a fixed 70/15/15 split by source group.
-2. **Baseline training**: word + character TF-IDF, class-weighted Logistic
-   Regression, calibrated probabilities, a separate one-vs-rest Body Shaming
-   classifier, saved with joblib into `ml/artifacts/` (also ignored).
-3. **Evaluation gates** (validation targets, not achievements): accuracy ≥ 85%,
-   false-positive rate < 10%, macro-F1 ≥ 0.75, threat recall ≥ 0.80 — with the
-   full metric report, confusion matrix, and error slices recorded here.
-4. **Swap-in**: the trained pipeline replaces `classifier.classify()` behind
-   the same `Prediction` interface and registers a new row in the
-   `model_versions` table. Nothing else in the backend or app changes.
+| Metric | Naive baseline | Deployed model | Gate |
+| --- | --- | --- | --- |
+| Accuracy | 0.934 | **0.906** | ≥ 0.85 ✅ |
+| False-positive rate | 0.002 | **0.048** | < 0.10 ✅ |
+| Threat recall | 0.37 | **0.66** | ≥ 0.80 ❌ |
+| Macro F1 | 0.54 | **0.57** | ≥ 0.75 ❌ |
 
-Until that work happens, the app displays results as uncertain estimates and
-the model version string makes the lexicon baseline visible everywhere.
+The naive run shows why accuracy alone is misleading here: the data is ~90%
+Normal, so a do-nothing model scores 0.90. The deployed model trades a little
+headline accuracy for nearly doubled threat recall (rebalanced training split;
+validation-tuned thresholds with a deliberately low bar for Threat). The two
+failed gates are honest limitations, driven mainly by class scarcity (478
+threat examples out of 159,571) and domain mismatch (Wikipedia discussion
+comments vs. teen chat). Full numbers: [`artifacts/metrics.json`](artifacts/)
+and `metrics_naive_baseline.json`; test-set confusion matrix:
+`confusion_matrix.png`.
+
+## Retraining
+
+1. Download the Jigsaw Toxic Comment `train.csv` from Kaggle
+   (<https://www.kaggle.com/datasets/julian3833/jigsaw-toxic-comment-classification-challenge>)
+   into `ml/data/` (gitignored).
+2. `pip install -r ml/requirements.txt` into the project venv.
+3. `python ml/train.py` — writes `model.joblib`, `metrics.json`, and
+   `confusion_matrix.png` into `ml/artifacts/` and prints the gate report.
+4. Restart the backend; `/v1/health` shows the active model version.
+
+`model.joblib` (~15 MB) is deliberately not in Git — hand it to the next
+machine separately, or retrain there with the steps above.
+
+## Future work
+
+A fine-tuned transformer compared against this baseline (the proposal's
+TensorFlow/PyTorch intent), and a labeled body-shaming dataset so the tag can
+graduate from the lexicon.

@@ -254,6 +254,8 @@ class SummaryReport(BaseModel):
     reviewed: int
     pending: int
     weekly: list[dict]
+    byWeekday: list[int]  # Monday..Sunday counts within the range
+    topSenders: list[dict]  # [{alias, count}] top 5, viewer-scoped
 
 
 class PdfRequest(BaseModel):

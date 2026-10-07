@@ -304,14 +304,22 @@ because the first one's text was already discarded.
 
 ## Known limitations
 
-- The lexicon classifier misses anything outside its word lists and has no
-  measured accuracy; treat every result as the uncertain estimate the UI says
-  it is.
+- Classification is a hybrid: the trained TF-IDF pipeline
+  (`tfidf-logreg-0.2.0`, measured — accuracy 90.6%, false-positive rate 4.8%,
+  threat recall 0.66, macro F1 0.57 on held-out Jigsaw data; see
+  `ml/artifacts/metrics.json`) merged severity-max with the lexicon baseline,
+  which still supplies masking terms and the Body Shaming tag. Without
+  `ml/artifacts/model.joblib` the API falls back to the lexicon alone. Either
+  way, results remain uncertain estimates and low-confidence detections are
+  flagged for human review.
 - Local HTTP on a shared Wi-Fi network, or a temporary public quick tunnel for
   remote testers; synthetic content only (§16.4).
 - In-app alerts refresh on tab focus, on returning to the foreground, via a
   60-second poll while the inbox is open, and on pull-to-refresh; there are
-  no push notifications by design (§4.2).
+  no push notifications by design (§4.2). Email alerts (FR5) are optional
+  and off by default: sent only to non-owner recipients of a newly created
+  alert row, only when the `A_MBL_SMTP_*` variables are set, and never
+  containing message content.
 - Evidence is downloaded on demand through the API client and held in memory
   while the case is open; very large screenshots take a moment to appear (the
   upload side caps them at 2000 px).
